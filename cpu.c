@@ -31,6 +31,17 @@ struct flags {
     bool carry;      // C
 };
 
+enum JumpTest {
+    JUMP_TEST_NONE,
+    JUMP_TEST_ZERO,       // Z flag set
+    JUMP_TEST_NOT_ZERO,   // Z flag not set
+    JUMP_TEST_CARRY,      // C flag set
+    JUMP_TEST_NOT_CARRY,  // C flag not set
+    JUMP_TEST_HALF_CARRY, // H flag set
+    JUMP_TEST_NOT_HALF_CARRY,
+    JUMP_TEST_ALWAYS
+};
+
 inline uint8_t flagToByte(struct flags *f) {
     return (f->zero ? FLAG_ZERO : 0) |
            (f->subtraction ? FLAG_SUBTRACTION : 0) |
@@ -57,7 +68,6 @@ static inline uint16_t get_virtual(uint8_t reg1, uint8_t reg2) {
     return ((uint16_t)(reg1) << 8) | (reg2); // Combine high and low bytes
 }
 
-// Arithmetic operations
 
 static inline void add(struct registers *reg, uint8_t b, struct flags *f) {
     uint16_t result = reg->a + b;
@@ -93,7 +103,7 @@ static inline void sub(struct registers *reg, uint8_t b, struct flags *f) {
     f->zero = ((result & 0xFF) == 0); // Check if result is zero
     f->subtraction = true; // N flag is set for subtraction
     f->half_carry = ((reg->a & 0x0F) < (b & 0x0F)); // H flag
-    f->carry = result > 0xFF; // C flag
+    f->carry = reg->a < b;
     reg->a = result & 0xFF; // Store the result in register A
 }
 
@@ -134,7 +144,7 @@ static inline uint8_t cp(struct registers *reg, uint8_t b, struct flags *f) {
     f->zero = ((result & 0xFF) == 0); // Z flag
     f->subtraction = true;            // N flag is set for CP
     f->half_carry = ((reg->a & 0x0F) < (b & 0x0F)); // H flag
-    f->carry = result > 0xFF;         // C flag
+    f->carry = reg->a < b;            // C flag
     return result & 0xFF;             // Return the result for further use if needed
 }
 static inline void inc(uint8_t *target, struct flags *f) {
@@ -171,28 +181,30 @@ static inline void rra(struct registers *reg, struct flags *f) {
     uint8_t old_carry = f->carry ? 0x01 : 0x00; // Save old carry state
     f->carry = (reg->a & 0x01) != 0; // Set carry flag based on bit 0 of A
     reg->a = (reg->a >> 1) | (old_carry << 7); // Rotate right and set new A value
-    f->zero = (reg->a == 0); // Update zero flag
 }
 static inline void rla(struct registers *reg, struct flags *f) {
     // Rotate A left through carry
     uint8_t old_carry = f->carry ? 0x80 : 0x00; // Save old carry state
     f->carry = (reg->a & 0x80) != 0; // Set carry flag based on bit 7 of A
     reg->a = (reg->a << 1) | (old_carry >> 7); // Rotate left and set new A value
-    f->zero = (reg->a == 0); // Update zero flag
 }
-static inline void rrla(struct registers *reg, struct flags *f) {
+static inline void rlca(struct registers *reg, struct flags *f) {
     // Rotate A left without affecting the carry flag
     uint8_t a7 = reg->a & 0x80; // Save bit 7 of A
     reg->a = (reg->a << 1) | (a7 >> 7);
     f->carry = (a7 != 0); // Set carry flag based on bit 7 of A
     f->zero = (reg->a == 0); // Update zero flag
+    f->subtraction = false; // N flag is always false for RLC
+    f->half_carry = false;  // H flag is always false for RLC
 }
-static inline void rlca(struct registers *reg, struct flags *f) {
-    // Rotate A left through carry without affecting the carry flag
-    uint8_t a7 = reg->a & 0x80; // Save bit 7 of A
-    reg->a = (reg->a << 1) | (a7 >> 7); // Rotate left and set new A value
-    f->carry = (a7 != 0); // Set carry flag based on bit 7 of A
-    f->zero = (reg->a == 0); // Update zero flag
+static inline void rrca(struct registers *reg, struct flags *f) {
+    // Rotate A right through carry without affecting the carry flag
+    uint8_t a0 = reg->a & 0x01; // Save bit 0 of A
+    reg->a = (reg->a >> 1) | (a0 << 7);
+    f->carry = (a0 != 0); // Set carry flag based on bit 0 of A
+    f->zero = false;
+    f->subtraction = false; // N flag is always false for RRC
+    f->half_carry = false;  // H flag is always false for RRC
 }
 static inline void cpl(struct registers *reg, struct flags *f) {
     // Complement A
@@ -295,7 +307,6 @@ struct CPU {
 struct Instruction {
     uint8_t opcode;
     const char *mnemonic; // Instruction mnemonic (e.g., "ADD", "SUB")
-    void (*execute)(struct CPU *cpu);
 };
 
 
@@ -308,48 +319,123 @@ static inline uint8_t read_byte(struct MemoryBus *bus, uint16_t address) {
     return 0; // Return 0 or handle error appropriately
 }
 
-// two possible ways to do execute
-//  1. create helper functions for each opcode
-//  2. give each function the same parameters and use a function pointer
+static inline uint16_t jump(struct CPU* cpu, bool should_jump) {
+    if (should_jump) {
+        uint16_t address = read_byte(&cpu->bus, cpu->pc++);
+        address |= (read_byte(&cpu->bus, cpu->pc++) << 8);
+        cpu->pc = address; // Set the program counter to the new address
+    } else {
+        cpu->pc += 2; // Skip the jump address
+    }
+    return cpu->pc;
+}
+static inline uint16_t exex_jp(struct CPU* cpu, enum JumpTest test) {
+    bool should_jump = false;
+    switch (test) {
+        case JUMP_TEST_ZERO:
+            should_jump = cpu->f.zero;
+            break;
+        case JUMP_TEST_NOT_ZERO:
+            should_jump = !cpu->f.zero;
+            break;
+        case JUMP_TEST_CARRY:
+            should_jump = cpu->f.carry;
+            break;
+        case JUMP_TEST_NOT_CARRY:
+            should_jump = !cpu->f.carry;
+            break;
+        case JUMP_TEST_HALF_CARRY:
+            should_jump = cpu->f.half_carry;
+            break;
+        case JUMP_TEST_NOT_HALF_CARRY:
+            should_jump = !cpu->f.half_carry;
+            break;
+        case JUMP_TEST_ALWAYS:
+            should_jump = true; // Always jump
+            break;
+        default:
+            fprintf(stderr, "Unknown jump test: %d\n", test);
+    }
+    return jump(cpu, should_jump);
+}
 
-struct Instruction instructions[] = {
-    {0x00, "NOP", NULL}, // No operation
-    {0x01, "LD BC,nn", NULL}, // Load immediate value into BC
-    {0x02, "LD (BC),A", NULL}, // Load A into memory at address in BC
-    {0x03, "INC BC", NULL}, // Increment BC
-    {0x04, "INC B", NULL}, // Increment B
-    {0x05, "DEC B", NULL}, // Decrement B
-    {0x06, "LD B,n", NULL}, // Load immediate value into B
-    {0x07, "RLCA", NULL}, // Rotate A left through carry
-    // Add more instructions as needed...
-};
-
-struct Instruction* opcode_table[256] = { NULL };
-
-// Initialize the opcode table with instruction pointers for fast lookup
-static inline void init_opcode_table() {
-    size_t count = sizeof(instructions) / sizeof(struct Instruction);
-    for (size_t i = 0; i < count; i++) {
-        opcode_table[instructions[i].opcode] = &instructions[i];
+static inline void execute_instruction(struct CPU* cpu, uint8_t opcode) {
+    switch (opcode) {
+        case 0x00: // NOP
+            break;
+        case 0x01: // LD BC,nn
+            cpu->regs.b = read_byte(&cpu->bus, cpu->pc++);
+            cpu->regs.c = read_byte(&cpu->bus, cpu->pc++);
+            break;
+        case 0x02: // LD (BC),A
+            set(cpu->bus.memory[get_virtual(cpu->regs.b, cpu->regs.c)], &cpu->regs.a);
+            break;
+        case 0x03: {
+            uint16_t bc = (cpu->regs.b << 8) | cpu->regs.c;
+            bc += 1;
+            cpu->regs.b = (bc >> 8) & 0xFF;
+            cpu->regs.c = bc & 0xFF;
+            break;
+        }
+        case 0x04: // INC B
+            inc(&cpu->regs.b, &cpu->f);
+            break;
+        case 0x05: // DEC B
+            dec(&cpu->regs.b, &cpu->f);
+            break;
+        case 0x06: // LD B,n
+            cpu->regs.b = read_byte(&cpu->bus, cpu->pc++);
+            break;
+        case 0x07: // RLCA
+            rlca(&cpu->regs, &cpu->f);
+            break;
+        // Add more cases for other opcodes...
+        default:
+            fprintf(stderr, "Unknown opcode: 0x%02X\n", opcode);
     }
 }
+
+static inline void prefixed_execute_instruction(struct CPU* cpu, uint8_t opcode) {
+    switch (opcode) {
+        case 0x00: // RLC B
+            rlc(&cpu->regs.b, &cpu->f);
+            break;
+        case 0x01: // RLC C
+            rlc(&cpu->regs.c, &cpu->f);
+            break;
+        case 0x02: // RLC D
+            rlc(&cpu->regs.d, &cpu->f);
+            break;
+        case 0x03: // RLC E
+            rlc(&cpu->regs.e, &cpu->f);
+            break;
+        case 0x04: // RLC H
+            rlc(&cpu->regs.h, &cpu->f);
+            break;
+        case 0x05: // RLC L
+            rlc(&cpu->regs.l, &cpu->f);
+            break;
+        case 0x06: // RLC (HL)
+            rlc(&cpu->bus.memory[get_virtual(cpu->regs.h, cpu->regs.l)], &cpu->f);
+            break;
+        case 0x07: // RLC A
+            rlc(&cpu->regs.a, &cpu->f);
+            break;
+        // Add more cases for other prefixed opcodes...
+        default:
+            fprintf(stderr, "Unknown prefixed opcode: 0x%02X\n", opcode);
+    }
+}
+
 
 static inline void step(struct CPU* cpu) {
     uint8_t opcode = read_byte(&cpu->bus, cpu->pc++);
     if (opcode == 0xCB) {
         opcode = read_byte(&cpu->bus, cpu->pc++);
+        prefixed_execute_instruction(cpu, opcode);
     }
-    struct Instruction* instr = opcode_table[opcode];
-
-    if (instr) {
-        if (instr->execute) {
-            instr->execute(cpu);
-        } else {
-            printf("Executing: %s (no-op function)\n", instr->mnemonic);
-        }
-    } else {
-        fprintf(stderr, "Unknown opcode: 0x%02X at PC: 0x%04X\n", opcode, cpu->pc - 1);
-    }
+    else
+        execute_instruction(cpu, opcode);
 }
 
 
