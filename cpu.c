@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+
 #define FLAG_ZERO      0x80 // 1000 0000
 #define FLAG_SUBTRACTION 0x40 // 0100 0000
 #define FLAG_HALF_CARRY 0x20 // 0010 0000
@@ -42,6 +43,11 @@ enum JumpTest {
     JUMP_TEST_ALWAYS
 };
 
+enum LoadByteSource {
+    A, B, C, D, E, H, L, D8, HLI
+};
+
+
 inline uint8_t flagToByte(struct flags *f) {
     return (f->zero ? FLAG_ZERO : 0) |
            (f->subtraction ? FLAG_SUBTRACTION : 0) |
@@ -78,7 +84,7 @@ static inline void add(struct registers *reg, uint8_t b, struct flags *f) {
     reg->a = result & 0xFF; // Store the result in register A
 }
 
-static inline void addHL(struct registers *reg, uint8_t b, struct flags *f) {
+static inline void addHL(struct registers *reg, uint16_t b, struct flags *f) {
     uint16_t result = get_virtual(reg->h, reg->l) + b;
     f->zero = ((result & 0xFF) == 0); // Check if result is zero
     f->subtraction = false; // N flag always false for ADD
@@ -302,6 +308,7 @@ struct CPU {
     uint16_t sp; // Stack Pointer
     struct MemoryBus bus;
     struct flags f; // Flags register
+    bool halted; // Halt state
 };
 
 struct Instruction {
@@ -310,6 +317,14 @@ struct Instruction {
 };
 
 
+static inline void write_byte(struct MemoryBus *bus, uint16_t address, uint8_t value) {
+    if (address < bus->size) {
+        bus->memory[address] = value;
+        return ; // Return the written value
+    }
+    fprintf(stderr, "Memory write out of bounds at address: 0x%04X\n", address);
+    return; // Return 0 or handle error appropriately
+}
 
 static inline uint8_t read_byte(struct MemoryBus *bus, uint16_t address) {
     if (address < bus->size) {
@@ -317,6 +332,30 @@ static inline uint8_t read_byte(struct MemoryBus *bus, uint16_t address) {
     }
     fprintf(stderr, "Memory read out of bounds at address: 0x%04X\n", address);
     return 0; // Return 0 or handle error appropriately
+}
+
+static inline uint16_t read_word(struct MemoryBus *bus, uint16_t address) {
+    if (address + 1 < bus->size) {
+        uint8_t low = read_byte(bus, address);
+        uint8_t high = read_byte(bus, address + 1);
+        return (high << 8) | low; // Combine high and low bytes
+    }
+    fprintf(stderr, "Memory read out of bounds at address: 0x%04X\n", address);
+    return 0; // Return 0 or handle error appropriately
+}
+
+static inline void push(struct CPU* cpu, uint16_t value) {
+    // Push a 16-bit value onto the stack
+    cpu->sp -= 2; // Decrement stack pointer by 2
+    write_byte(&cpu->bus, cpu->sp, value & 0xFF); // Write low byte
+    write_byte(&cpu->bus, cpu->sp + 1, (value >> 8) & 0xFF); // Write high byte
+}
+static inline uint16_t pop(struct CPU* cpu) {
+    // Pop a 16-bit value from the stack
+    uint8_t low = read_byte(&cpu->bus, cpu->sp);
+    uint8_t high = read_byte(&cpu->bus, cpu->sp + 1);
+    cpu->sp += 2; // Increment stack pointer by 2
+    return (high << 8) | low; // Combine high and low bytes
 }
 
 static inline uint16_t jump(struct CPU* cpu, bool should_jump) {
@@ -359,24 +398,40 @@ static inline uint16_t exex_jp(struct CPU* cpu, enum JumpTest test) {
     return jump(cpu, should_jump);
 }
 
+static inline uint16_t call(struct CPU* cpu, bool should_jump) {
+    uint16_t next_pc = cpu->pc + 3; // Next instruction address after call
+    if (should_jump) {
+        push(cpu, next_pc); // Push current PC onto the stack
+        return read_word(&cpu->bus, cpu->pc); // Read the address to jump to
+    } else {
+        return next_pc; // Skip the call address
+
+    }
+}
+
+static inline uint16_t return_stack(struct CPU* cpu, bool should_jump) {
+    if (should_jump) {
+        return pop(cpu); // Pop the return address from the stack
+    } else {
+        cpu->pc += 1; // Skip the return address
+        return cpu->pc;
+    }
+}
+
 static inline void execute_instruction(struct CPU* cpu, uint8_t opcode) {
     switch (opcode) {
         case 0x00: // NOP
             break;
         case 0x01: // LD BC,nn
-            cpu->regs.b = read_byte(&cpu->bus, cpu->pc++);
-            cpu->regs.c = read_byte(&cpu->bus, cpu->pc++);
+            set_virtual(&cpu->regs.b, &cpu->regs.c, read_word(&cpu->bus, cpu->pc));
+            cpu->pc += 2; // Increment PC by 2 to skip the immediate value
             break;
         case 0x02: // LD (BC),A
-            set(cpu->bus.memory[get_virtual(cpu->regs.b, cpu->regs.c)], &cpu->regs.a);
+            write_byte(&cpu->bus, get_virtual(cpu->regs.b, cpu->regs.c), cpu->regs.a);
             break;
-        case 0x03: {
-            uint16_t bc = (cpu->regs.b << 8) | cpu->regs.c;
-            bc += 1;
-            cpu->regs.b = (bc >> 8) & 0xFF;
-            cpu->regs.c = bc & 0xFF;
+        case 0x03: // INC BC
+            set_virtual(&cpu->regs.b, &cpu->regs.c, 1+ get_virtual(cpu->regs.b, cpu->regs.c));
             break;
-        }
         case 0x04: // INC B
             inc(&cpu->regs.b, &cpu->f);
             break;
@@ -389,7 +444,111 @@ static inline void execute_instruction(struct CPU* cpu, uint8_t opcode) {
         case 0x07: // RLCA
             rlca(&cpu->regs, &cpu->f);
             break;
-        // Add more cases for other opcodes...
+        case 0x08: // LD (nn),SP
+            {
+                uint16_t address = read_word(&cpu->bus, cpu->pc);
+                cpu->pc += 2; // Increment PC by 2 to skip the immediate value
+                write_byte(&cpu->bus, address, cpu->sp & 0xFF); // Write low byte
+                write_byte(&cpu->bus, address + 1, (cpu->sp >> 8) & 0xFF); // Write high byte
+            }
+            break;
+        case 0x09: // ADD HL,BC
+            addHL(&cpu->regs, get_virtual(cpu->regs.b, cpu->regs.c), &cpu->f);
+            break;
+        case 0x0A: // LD A,(BC)
+            cpu->regs.a = read_byte(&cpu->bus, get_virtual(cpu->regs.b, cpu->regs.c));
+            break;
+        case 0x0B: // DEC BC
+            set_virtual(&cpu->regs.b, &cpu->regs.c, get_virtual(cpu->regs.b, cpu->regs.c) - 1);
+            break;
+        case 0x0C: // INC C
+            inc(&cpu->regs.c, &cpu->f);
+            break;
+        case 0x0D: // DEC C
+            dec(&cpu->regs.c, &cpu->f);
+            break;
+        case 0x0E: // LD C,n
+            cpu->regs.c = read_byte(&cpu->bus, cpu->pc++);
+            break;
+        case 0x0F: // RRCA
+            rrca(&cpu->regs, &cpu->f);
+            break;
+        case 0x10: // STOP
+            cpu->halted = true; // Set halted state
+            break;
+        case 0x11: // LD DE,nn
+            set_virtual(&cpu->regs.d, &cpu->regs.e, read_word(&cpu->bus, cpu->pc));
+            cpu->pc += 2; // Increment PC by 2 to skip the immediate value
+            break;
+        case 0x12: // LD (DE),A
+            write_byte(&cpu->bus, get_virtual(cpu->regs.d, cpu->regs.e), cpu->regs.a);
+            break;
+        case 0x13: // INC DE
+            set_virtual(&cpu->regs.d, &cpu->regs.e, 1 + get_virtual(cpu->regs.d, cpu->regs.e));
+            break;
+        case 0x14: // INC D
+            inc(&cpu->regs.d, &cpu->f);
+            break;
+        case 0x15: // DEC D
+            dec(&cpu->regs.d, &cpu->f);
+            break;
+        case 0x16: // LD D,n
+            cpu->regs.d = read_byte(&cpu->bus, cpu->pc++);
+            break;
+        case 0x17: // RLA
+            rla(&cpu->regs, &cpu->f);
+            break;
+        case 0x18: // JR n
+            cpu->pc += (int8_t)read_byte(&cpu->bus, cpu->pc+1) + 2; // Jump relative
+            break;
+        case 0x19: // ADD HL,DE
+            addHL(&cpu->regs, get_virtual(cpu->regs.d, cpu->regs.e), &cpu->f);
+            break;
+        case 0x1A: // LD A,(DE)
+            cpu->regs.a = read_byte(&cpu->bus, get_virtual(cpu->regs.d, cpu->regs.e));
+            break;
+        case 0x1B: // DEC DE
+            set_virtual(&cpu->regs.d, &cpu->regs.e, get_virtual(cpu->regs.d, cpu->regs.e) - 1);
+            break;
+        case 0x1C: // INC E
+            inc(&cpu->regs.e, &cpu->f);
+            break;
+        case 0x1D: // DEC E
+            dec(&cpu->regs.e, &cpu->f);
+            break;
+        case 0x1E: // LD E,n
+            cpu->regs.e = read_byte(&cpu->bus, cpu->pc++);
+            break;
+        case 0x1F: // RRA
+            rra(&cpu->regs, &cpu->f);
+            break;
+        case 0x20: // JR NZ,n
+            if (!cpu->f.zero) {
+                cpu->pc += (int8_t)read_byte(&cpu->bus, cpu->pc+1) + 2; // Jump relative if not zero
+            } else {
+                cpu->pc += 2; // Skip the jump address
+            }
+            break;
+        case 0x21: // LD HL,nn
+            set_virtual(&cpu->regs.h, &cpu->regs.l, read_word(&cpu->bus, cpu->pc));
+            cpu->pc += 2; // Increment PC by 2 to skip the immediate value
+            break;
+        case 0x22: // LD (HL+),A
+            write_byte(&cpu->bus, get_virtual(cpu->regs.h, cpu->regs.l), cpu->regs.a);
+            set_virtual(&cpu->regs.h, &cpu->regs.l, get_virtual(cpu->regs.h, cpu->regs.l) + 1); // Increment HL
+            break;
+        case 0x23: // INC HL
+            set_virtual(&cpu->regs.h, &cpu->regs.l, 1 + get_virtual(cpu->regs.h, cpu->regs.l));
+            break;
+        case 0x24: // INC H
+            inc(&cpu->regs.h, &cpu->f);
+            break;
+        case 0x25: // DEC H
+            dec(&cpu->regs.h, &cpu->f);
+            break;
+        case 0x26: // LD H,n
+            cpu->regs.h = read_byte(&cpu->bus, cpu->pc++);
+            break;
         default:
             fprintf(stderr, "Unknown opcode: 0x%02X\n", opcode);
     }
@@ -443,6 +602,15 @@ static inline void step(struct CPU* cpu) {
 int main() {
     struct registers regs = {0};
     set_virtual(&regs.a, &regs.f, 0x1234);
-
+    struct CPU cpu = {
+        .regs = regs,
+        .pc = 0x0000,
+        .sp = 0xFFFF,
+        .bus = {
+            .memory = (uint8_t[65536]){0}, // Initialize memory with 64KB
+            .size = 65536
+        },
+        .f = {0} // Initialize flags
+    };
     return 0;
 }
