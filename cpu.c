@@ -2285,33 +2285,3 @@ static void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
     // Update the CPU state after executing the instruction
     return;
 }
-
-
-int main(){
-    printf("CPU Fast Code Snippet\n");
-    struct registers regs = {
-        .a = 0x10,
-        .b = 0x12,
-        .c = 0x13,
-        .d = 0x14,
-        .e = 0x15,
-        .hl = 0x0000
-    };
-    struct CPU cpu = {
-        .regs = regs,
-        .pc = 0x0000,
-        .sp = 0xFFFF,
-        .bus = {
-            .memory = (uint8_t[65536]){0}, // Initialize memory with 64KB
-            .size = 65536
-        },
-        .f = {0} // Initialize flags
-    };
-
-    _exec_cb_inst(&cpu, 0xF0);
-    printf("Register B after SET 6: 0x%02X\n", cpu.regs.b);
-    _exec_cb_inst(&cpu, 0xB0);
-    printf("Register B after RES 6: 0x%02X\n", cpu.regs.b);
-
-    return 0;
-}
