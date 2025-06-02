@@ -108,6 +108,10 @@ struct CPU {
         WRITE_BYTE(cpu, (addr) + 1, (value) >> 8); \
     } while (0)
 
+
+// pre declaration
+static void _exec_cb_inst(struct CPU *cpu, uint8_t opcode);
+
 static void exec_inst(struct CPU *cpu, uint8_t opcode) {
     switch (opcode) {
         case 0x00: // NOP
@@ -1601,6 +1605,11 @@ static void exec_inst(struct CPU *cpu, uint8_t opcode) {
             }
         }
         break;
+    case 0xCB: // cb prefix
+        // Handle CB-prefixed opcodes here
+        _exec_cb_inst(cpu, opcode);
+        cpu->pc+=2;
+        break;
 
     case 0xCC: // CALL Z,nn
         {
@@ -1978,8 +1987,331 @@ static void exec_inst(struct CPU *cpu, uint8_t opcode) {
     }
 }
 
+static void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
+    // This function would handle CB-prefixed instructions
+    // For simplicity, we will not implement it here.
+    uint8_t reg = (opcode & 0x0F); // lower nibble of the opcode
+    uint8_t instruction = (opcode & 0xF0) >> 4; // upper nibble of the opcode
+    uint8_t *reg_ptr = NULL;
+    bool left = true;
+    uint8_t is_h = 0; // 1 if h 2 if L 0 if some other register
+    switch (reg) {
+        case 0x00: reg_ptr = &cpu->regs.b; break;
+        case 0x01: reg_ptr = &cpu->regs.c; break;
+        case 0x02: reg_ptr = &cpu->regs.d; break;
+        case 0x03: reg_ptr = &cpu->regs.e; break;
+        case 0x04: reg_ptr = (uint8_t*)(&cpu->regs.hl) + 1; is_h = 1; break; // H is the high byte of HL
+        case 0x05: reg_ptr = (uint8_t*)(&cpu->regs.hl); is_h = 2; break; // L is the low byte of HL
+        case 0x06: reg_ptr = &cpu->bus.memory[cpu->regs.hl]; break; // (HL) is a memory address
+        case 0x07: reg_ptr = &cpu->regs.a; break;
+        case 0x08: reg_ptr = &cpu->regs.b; left = false; break;
+        case 0x09: reg_ptr = &cpu->regs.c; left = false; break;
+        case 0x0A: reg_ptr = &cpu->regs.d; left = false; break;
+        case 0x0B: reg_ptr = &cpu->regs.e; left = false; break;
+        case 0x0C: reg_ptr = (uint8_t*)(&cpu->regs.hl) + 1; left = false; is_h = 1; break; // H is the high byte of HL
+        case 0x0D: reg_ptr = (uint8_t*)(&cpu->regs.hl); left = false; is_h = 2; break; // L is the low byte of HL
+        case 0x0E: reg_ptr =&cpu->bus.memory[cpu->regs.hl]; left = false; break;
+        case 0x0F: reg_ptr = &cpu->regs.a; left = false; break;
+        default:
+            fprintf(stderr, "Invalid CB register: 0x%02X\n", reg);
+            return;
+    }
+    if (left) {
+        switch (instruction) {
+            case 0x00: // RLC
+                uint8_t old_value = *reg_ptr;
+                *reg_ptr = (*reg_ptr << 1) | (*reg_ptr >> 7);
+                cpu->f.zero = (*reg_ptr == 0);
+                cpu->f.subtraction = false;
+                cpu->f.half_carry = false;
+                cpu->f.carry = (old_value & 0x80) != 0;
+                break;
+
+            case 0x01: // RL
+                {
+                    uint8_t old_value = *reg_ptr;
+                    uint8_t carry = cpu->f.carry ? 1 : 0;
+                    *reg_ptr = (*reg_ptr << 1) | carry;
+                    cpu->f.zero = (*reg_ptr == 0);
+                    cpu->f.subtraction = false;
+                    cpu->f.half_carry = false;
+                    cpu->f.carry = (old_value & 0x80) != 0;
+                }
+                break;
+            case 0x02: // SLA
+                {
+                    *reg_ptr <<= 1;
+                    cpu->f.zero = (*reg_ptr == 0);
+                    cpu->f.subtraction = false;
+                    cpu->f.half_carry = false;
+                    cpu->f.carry = (*reg_ptr & 0x80) != 0;
+                }
+                break;
+            case 0x03: // SWAP
+                {
+                    uint8_t temp = *reg_ptr;
+                    *reg_ptr = (*reg_ptr >> 4) | (*reg_ptr << 4);
+                    cpu->f.zero = (*reg_ptr == 0);
+                    cpu->f.subtraction = false;
+                    cpu->f.half_carry = false;
+                    cpu->f.carry = false; // No carry for SWAP
+                }
+                break;
+            case 0x04: // BIT 0, reg
+                {
+                    uint8_t bit = (*reg_ptr >> 0) & 1;
+                    cpu->f.zero = (bit == 0);
+                    cpu->f.subtraction = false;
+                    cpu->f.half_carry = true;
+
+                }
+                break;
+            case 0x05: // BIT 2, reg
+                {
+                    uint8_t bit = (*reg_ptr >> 2) & 1;
+                    cpu->f.zero = (bit == 0);
+                    cpu->f.subtraction = false;
+                    cpu->f.half_carry = true;
+
+                }
+                break;
+            case 0x06: // BIT 4, reg
+                {
+                    uint8_t bit = (*reg_ptr >> 4) & 1;
+                    cpu->f.zero = (bit == 0);
+                    cpu->f.subtraction = false;
+                    cpu->f.half_carry = true;
+
+                }
+                break;
+            case 0x07: // BIT 6, reg
+                {
+                    uint8_t bit = (*reg_ptr >> 6) & 1;
+                    cpu->f.zero = (bit == 0);
+                    cpu->f.subtraction = false;
+                    cpu->f.half_carry = true;
+                }
+                break;
+            case 0x08: // RES 0, reg
+                {
+                    *reg_ptr &= ~(1 << 0); // Clear bit 0
+
+                }
+                break;
+            case 0x09: // RES 2, reg
+                {
+                    *reg_ptr &= ~(1 << 2); // Clear bit 2
+
+                }
+                break;
+            case 0x0A: // RES 4, reg
+                {
+                    *reg_ptr &= ~(1 << 4); // Clear bit 4
+
+                }
+                break;
+            case 0x0B: // RES 6, reg
+                {
+                    *reg_ptr &= ~(1 << 6); // Clear bit 6
+
+                }
+                break;
+            case 0x0C: // SET 0, reg
+                {
+                    *reg_ptr |= (1 << 0); // Set bit 0
+
+                }
+                break;
+            case 0x0D: // SET 2, reg
+                {
+                    *reg_ptr |= (1 << 2); // Set bit 2
+
+                }
+                break;
+            case 0x0E: // SET 4, reg
+                {
+                    *reg_ptr |= (1 << 4); // Set bit 4
+
+                }
+                break;
+            case 0x0F: // SET 6, reg
+                {
+                    *reg_ptr |= (1 << 6); // Set bit 6
+
+                }
+                break;
+            default:
+                fprintf(stderr, "Unknown CB instruction: 0x%02X\n", opcode);
+                return;
+        }
+    } else {
+        switch (instruction) {
+            case 0x00: // RRC
+                {
+                    uint8_t old_value = *reg_ptr;
+                    *reg_ptr = (*reg_ptr >> 1) | ((*reg_ptr & 0x01) << 7);
+                    cpu->f.zero = (*reg_ptr == 0);
+                    cpu->f.subtraction = false;
+                    cpu->f.half_carry = false;
+                    cpu->f.carry = (old_value & 0x01) != 0; // Carry is the last bit
+                }
+                break;
+            case 0x01: // RR
+                {
+                    uint8_t old_value = *reg_ptr;
+                    uint8_t carry = cpu->f.carry ? 0x80 : 0; // Carry is the last bit
+                    *reg_ptr = (*reg_ptr >> 1) | carry;
+                    cpu->f.zero = (*reg_ptr == 0);
+                    cpu->f.subtraction = false;
+                    cpu->f.half_carry = false;
+                    cpu->f.carry = (old_value & 0x01) != 0; // Carry is the last bit
+                }
+                break;
+            case 0x02: // SRA
+                {
+                    *reg_ptr >>= 1;
+                    cpu->f.zero = (*reg_ptr == 0);
+                    cpu->f.subtraction = false;
+                    cpu->f.half_carry = false;
+                    cpu->f.carry = (*reg_ptr & 0x01) != 0; // Carry is the last bit
+                }
+                break;
+            case 0x03: // SWAP
+                {
+                    uint8_t temp = *reg_ptr;
+                    *reg_ptr = (*reg_ptr >> 4) | (*reg_ptr << 4);
+                    cpu->f.zero = (*reg_ptr == 0);
+                    cpu->f.subtraction = false;
+                    cpu->f.half_carry = false;
+                    cpu->f.carry = false; // No carry for SWAP
+                }
+                break;
+            case 0x04: // BIT 1, reg
+                {
+                    uint8_t bit = (*reg_ptr >> 1) & 1;
+                    cpu->f.zero = (bit == 0);
+                    cpu->f.subtraction = false;
+                    cpu->f.half_carry = true;
+                }
+                break;
+            case 0x05: // BIT 3, reg
+                {
+                    uint8_t bit = (*reg_ptr >> 3) & 1;
+                    cpu->f.zero = (bit == 0);
+                    cpu->f.subtraction = false;
+                    cpu->f.half_carry = true;
+                }
+                break;
+            case 0x06: // BIT 5, reg
+                {
+                    uint8_t bit = (*reg_ptr >> 5) & 1;
+                    cpu->f.zero = (bit == 0);
+                    cpu->f.subtraction = false;
+                    cpu->f.half_carry = true;
+                }
+                break;
+            case 0x07: // BIT 7, reg
+                {
+                    uint8_t bit = (*reg_ptr >> 7) & 1;
+                    cpu->f.zero = (bit == 0);
+                    cpu->f.subtraction = false;
+                    cpu->f.half_carry = true;
+                }
+                break;
+            case 0x08: // RES 1, reg
+                {
+                    *reg_ptr &= ~(1 << 1); // Clear bit 1
+
+                }
+                break;
+            case 0x09: // RES 3, reg
+                {
+                    *reg_ptr &= ~(1 << 3); // Clear bit 3
+
+                }
+                break;
+            case 0x0A: // RES 5, reg
+                {
+                    *reg_ptr &= ~(1 << 5); // Clear bit 5
+
+                }
+                break;
+            case 0x0B: // RES 7, reg
+                {
+                    *reg_ptr &= ~(1 << 7); // Clear bit 7
+
+                }
+                break;
+            case 0x0C: // SET 1, reg
+                {
+                    *reg_ptr |= (1 << 1); // Set bit 1
+
+                }
+                break;
+            case 0x0D: // SET 3, reg
+                {
+                    *reg_ptr |= (1 << 3); // Set bit 3
+
+                }
+                break;
+            case 0x0E: // SET 5, reg
+                {
+                    *reg_ptr |= (1 << 5); // Set bit 5
+
+                }
+                break;
+            case 0x0F: // SET 7, reg
+                {
+                    *reg_ptr |= (1 << 7); // Set bit 7
+
+                }
+                break;
+            default:
+                fprintf(stderr, "Unknown CB instruction: 0x%02X\n", opcode);
+                return;
+            }
+        }
+
+    // sync HL with h and l
+    if (is_h !=0){
+        if (is_h == 1) {
+            // H was modified, update high byte of hl
+            cpu->regs.hl = (cpu->regs.hl & 0x00FF) | (*reg_ptr << 8);
+        } else if (is_h == 2) {
+            // L was modified, update low byte of hl
+            cpu->regs.hl = (cpu->regs.hl & 0xFF00) | (*reg_ptr);
+        }
+    }
+    // Update the CPU state after executing the instruction
+    return;
+}
+
 
 int main(){
     printf("CPU Fast Code Snippet\n");
+    struct registers regs = {
+        .a = 0x10,
+        .b = 0x12,
+        .c = 0x13,
+        .d = 0x14,
+        .e = 0x15,
+        .hl = 0x0000
+    };
+    struct CPU cpu = {
+        .regs = regs,
+        .pc = 0x0000,
+        .sp = 0xFFFF,
+        .bus = {
+            .memory = (uint8_t[65536]){0}, // Initialize memory with 64KB
+            .size = 65536
+        },
+        .f = {0} // Initialize flags
+    };
+
+    _exec_cb_inst(&cpu, 0xF0);
+    printf("Register B after SET 6: 0x%02X\n", cpu.regs.b);
+    _exec_cb_inst(&cpu, 0xB0);
+    printf("Register B after RES 6: 0x%02X\n", cpu.regs.b);
+
     return 0;
 }
