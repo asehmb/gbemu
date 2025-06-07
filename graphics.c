@@ -1,10 +1,6 @@
-
-
 #include "graphics.h"
-#include <stdint.h>
-#include <sys/stat.h>
 
-static inline uint8_t read_vram(struct GPU *gpu, uint16_t addr) {
+uint8_t read_vram(struct GPU *gpu, uint16_t addr) {
     if (addr < VRAM_BEGIN || addr > VRAM_END) {
         fprintf(stderr, "VRAM access out of bounds: 0x%04X\n", addr);
         return 0; // Return 0 for out of bounds access
@@ -12,7 +8,7 @@ static inline uint8_t read_vram(struct GPU *gpu, uint16_t addr) {
     return gpu->vram[addr - VRAM_BEGIN];
 }
 
-static inline void write_vram(struct GPU *gpu, uint16_t addr, uint8_t value) {
+void write_vram(struct GPU *gpu, uint16_t addr, uint8_t value) {
     if (addr < VRAM_BEGIN || addr > VRAM_END) {
         fprintf(stderr, "VRAM access out of bounds: 0x%04X\n", addr);
         return; // Ignore out of bounds writes
@@ -36,20 +32,20 @@ static inline void write_vram(struct GPU *gpu, uint16_t addr, uint8_t value) {
 
 }
 
-static void render_tile_line(struct GPU *gpu, int tile_index, uint8_t palette) {
+void render_tile_line(struct GPU *gpu, int tile_index, uint8_t palette) {
     // Render a single line of a tile to the framebuffer
     Tile *tile = &gpu->tiles[tile_index];
     uint8_t *framebuffer = gpu->framebuffer;
 
     for (int x = 0; x < 8; x++) {
-        int pixel = (tile->data[gpu->ly * 2] >> (7 - x)) & 1;
-        pixel |= ((tile->data[gpu->ly * 2 + 1] >> (7 - x)) & 1) << 1;
+        int pixel = (tile->data[LY(gpu) * 2] >> (7 - x)) & 1;
+        pixel |= ((tile->data[LY(gpu) * 2 + 1] >> (7 - x)) & 1) << 1;
 
         // Apply palette
         uint8_t color = (palette >> (pixel * 2)) & 0x03;
 
-        int screen_x = (gpu->scx * 8 + x) % SCREEN_WIDTH;
-        int screen_y = (gpu->scy * 8 + gpu->ly) % SCREEN_HEIGHT;
+        int screen_x = (SCX(gpu) * 8 + x) % SCREEN_WIDTH;
+        int screen_y = (SCY(gpu)) * 8 + LY(gpu) % SCREEN_HEIGHT;
 
         if (screen_x < SCREEN_WIDTH && screen_y < SCREEN_HEIGHT) {
             framebuffer[screen_y * SCREEN_WIDTH + screen_x] = color;
@@ -57,8 +53,8 @@ static void render_tile_line(struct GPU *gpu, int tile_index, uint8_t palette) {
     }
 }
 
-static void maybe_trigger_stat_interrupt(struct GPU *gpu, int mode) {
-    uint8_t stat = gpu->stat;
+void maybe_trigger_stat_interrupt(struct GPU *gpu, int mode) {
+    uint8_t stat = STAT(gpu);
 
     // Mode flags in STAT register:
     // Bit 3: HBlank
@@ -84,7 +80,7 @@ static void maybe_trigger_stat_interrupt(struct GPU *gpu, int mode) {
 }
 
 
-static void step_gpu(struct GPU *gpu, int cycles) {
+void step_gpu(struct GPU *gpu, int cycles) {
     gpu->mode_clock += cycles;
 
     switch (gpu->mode) {
@@ -112,19 +108,19 @@ static void step_gpu(struct GPU *gpu, int cycles) {
         case 0: // HBlank
             if (gpu->mode_clock >= 204) {
                 gpu->mode_clock -= 204;
-                gpu->ly++;
+                LY(gpu)++;
 
                 // LY==LYC check
-                if (gpu->ly == gpu->lyc) {
-                    gpu->stat |= 0x04; // Coincidence flag
-                    if (gpu->stat & 0x40) {
+                if (LY(gpu) == LYC(gpu)) {
+                    STAT(gpu) |= 0x04; // Coincidence flag
+                    if (STAT(gpu) & 0x40) {
                         REQUEST_INTERRUPT(gpu, 0x02); // STAT interrupt
                     }
                 } else {
-                    gpu->stat &= ~0x04;
+                    STAT(gpu) &= ~0x04;
                 }
 
-                if (gpu->ly == 144) {
+                if (LY(gpu) == 144) {
                     gpu->mode = 1; // VBlank
                     REQUEST_INTERRUPT(gpu, 0x01); // VBlank interrupt
                     maybe_trigger_stat_interrupt(gpu, 1); // VBlank STAT interrupt
@@ -138,31 +134,31 @@ static void step_gpu(struct GPU *gpu, int cycles) {
         case 1: // VBlank
             if (gpu->mode_clock >= 456) {
                 gpu->mode_clock -= 456;
-                gpu->ly++;
+                LY(gpu)++;
 
-                if (gpu->ly > 153) {
-                    gpu->ly = 0;
+                if (LY(gpu) > 153) {
+                    LY(gpu) = 0;
                     gpu->mode = 2; // Back to OAM Search
                     maybe_trigger_stat_interrupt(gpu, 2); // OAM STAT interrupt
 
                     // LY==LYC check
-                    if (gpu->ly == gpu->lyc) {
-                        gpu->stat |= 0x04;
-                        if (gpu->stat & 0x40) {
+                    if (LY(gpu) == LYC(gpu))  {
+                        STAT(gpu) |= 0x04;
+                        if (STAT(gpu) & 0x40) {
                             REQUEST_INTERRUPT(gpu, 0x02); // STAT interrupt
                         }
                     } else {
-                        gpu->stat &= ~0x04;
+                        STAT(gpu) &= ~0x04;
                     }
                 } else {
                     // LY==LYC check during VBlank
-                    if (gpu->ly == gpu->lyc) {
-                        gpu->stat |= 0x04;
-                        if (gpu->stat & 0x40) {
+                    if (LY(gpu) == LYC(gpu))  {
+                        STAT(gpu) |= 0x04;
+                        if (STAT(gpu) & 0x40) {
                             REQUEST_INTERRUPT(gpu, 0x02); // STAT interrupt
                         }
                     } else {
-                        gpu->stat &= ~0x04;
+                        STAT(gpu) &= ~0x04;
                     }
                 }
             }
@@ -170,7 +166,7 @@ static void step_gpu(struct GPU *gpu, int cycles) {
     }
 
     // Update STAT mode bits
-    gpu->stat = (gpu->stat & 0xFC) | (gpu->mode & 0x03);
+    STAT(gpu) = (STAT(gpu) & 0xFC) | (gpu->mode & 0x03);
 }
 
 
@@ -181,12 +177,12 @@ static void step_gpu(struct GPU *gpu, int cycles) {
     * left = SCX % 256
  */
 
-static void render_background(struct GPU *gpu) {
-    uint8_t lcdc = gpu->lcdc;
+void render_background(struct GPU *gpu) {
+    uint8_t lcdc = LCDC(gpu);
     if (!LCDC_LCD_ENABLE(lcdc)) return; // LCD is disabled
 
-    int scy = gpu->scy;
-    int scx = gpu->scx;
+    int scy = SCY(gpu);
+    int scx = SCX(gpu);
 
     // Select background tile map base address
     uint16_t bg_tile_map_base = (lcdc & 0x08) ? 0x9C00 : 0x9800;
@@ -238,12 +234,12 @@ static void render_background(struct GPU *gpu) {
 }
 
 
-static void render_window(struct GPU *gpu) {
-    uint8_t lcdc = gpu->lcdc;
+void render_window(struct GPU *gpu) {
+    uint8_t lcdc = LCDC(gpu);
     if (!LCDC_WINDOW_ENABLE(lcdc)) return; // Window is disabled
 
-    int wy = gpu->wy;
-    int wx = gpu->wx - 7; // Game Boy offset correction
+    int wy = WY(gpu) - 16; // Window Y position (0-143)
+    int wx = WX(gpu) - 7; // Game Boy offset correction
 
     // Select window tile map base address
     uint16_t win_tile_map_base = (lcdc & 0x40) ? 0x9C00 : 0x9800;
@@ -299,8 +295,8 @@ static void render_window(struct GPU *gpu) {
 }
 
 
-static void render_sprites(struct GPU *gpu) {
-    uint8_t lcdc = gpu->lcdc;
+void render_sprites(struct GPU *gpu) {
+    uint8_t lcdc = LCDC(gpu);
     if (!LCDC_OBJ_ENABLE(lcdc)) return; // Sprites are disabled
 
     int sprite_height = (lcdc & 0x04) ? 16 : 8; // 8x16 or 8x8
@@ -315,13 +311,13 @@ static void render_sprites(struct GPU *gpu) {
         if (sprite_y + sprite_height <= 0 || sprite_x + 8 <= 0) continue;
 
         // Skip if current line is not within the sprite's vertical range
-        if (gpu->ly < sprite_y || gpu->ly >= (sprite_y + sprite_height)) continue;
+        if (LY(gpu) < sprite_y || LY(gpu) >= (sprite_y + sprite_height)) continue;
 
         uint8_t tile_index = sprite->tile_index;
         uint8_t flags = sprite->flags;
 
         // Flip Y
-        int line = gpu->ly - sprite_y;
+        int line = LY(gpu) - sprite_y;
         if (flags & 0x40) { // Bit 6: flip Y
             line = sprite_height - 1 - line;
         }
@@ -351,22 +347,22 @@ static void render_sprites(struct GPU *gpu) {
             if (screen_x < 0 || screen_x >= SCREEN_WIDTH) continue;
 
             // Priority (bit 7) — if set, background color 1-3 has priority
-            if ((flags & 0x80) && gpu->framebuffer[gpu->ly * SCREEN_WIDTH + screen_x] != 0) {
+            if ((flags & 0x80) && gpu->framebuffer[LY(gpu) * SCREEN_WIDTH + screen_x] != 0) {
                 continue; // Skip drawing this sprite pixel
             }
 
             // Select sprite palette
-            uint8_t palette = (flags & 0x10) ? gpu->obp1 : gpu->obp0;
+            uint8_t palette = (flags & 0x10) ? OBP1(gpu) : OBP0(gpu);
             uint8_t final_color = (palette >> (color * 2)) & 0x03;
 
-            gpu->framebuffer[gpu->ly * SCREEN_WIDTH + screen_x] = final_color;
+            gpu->framebuffer[LY(gpu) * SCREEN_WIDTH + screen_x] = final_color;
         }
     }
 }
 
 
 
-static void dma_transfer(struct GPU *gpu, uint8_t value) {
+void dma_transfer(struct GPU *gpu, uint8_t value) {
     // DMA transfer source address = value << 8 (e.g., 0xXX00)
     uint16_t source = value << 8;
 

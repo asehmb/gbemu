@@ -1,4 +1,3 @@
-
 #ifndef _CPU_H
 #define _CPU_H
 
@@ -6,6 +5,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include "input.h"
 
 
 #define FLAG_ZERO      0x80 // 1000 0000
@@ -145,6 +145,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode);
     @param opcode The CB-prefixed opcode to execute.
     @return void
 */
+void cpu_interrupt_jump(struct CPU *cpu, uint16_t vector);
+
 void _exec_cb_inst(struct CPU *cpu, uint8_t opcode);
 
 void cpu_init(struct CPU *cpu, struct MemoryBus *bus);
@@ -153,7 +155,6 @@ void step_cpu(struct CPU *cpu);
 
 void cpu_handle_interrupts(struct CPU *cpu);
 
-inline void cpu_interrupt_jump(struct CPU *cpu, uint16_t vector);
 
 
 #endif // _CPU_H

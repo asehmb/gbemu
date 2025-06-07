@@ -1,5 +1,3 @@
-
-
 #ifndef GRAPHICS_H
 #define GRAPHICS_H
 
@@ -43,8 +41,22 @@
 #define OAM_FLAGS_X_FLIP(flags)          (((flags) >> 5) & 0x1)
 #define OAM_FLAGS_PALETTE(flags)         (((flags) >> 4) & 0x1)
 
+#define SCY(gpu) (gpu->vram[0xFF42]) // Scroll Y (0xFF42)
+#define SCX(gpu) (gpu->vram[0xFF43]) // Scroll X (0xFF43)
+#define LY(gpu) (gpu->vram[0xFF44]) // Current Line (0xFF44)
+#define LYC(gpu) (gpu->vram[0xFF45]) // LY Compare (0xFF45)
+#define DMA(gpu) (gpu->vram[0xFF46]) // DMA Transfer (0xFF46)
+#define BGP(gpu) (gpu->vram[0xFF47]) // BG Palette (0xFF47)
+#define OBP0(gpu) (gpu->vram[0xFF48]) // Object Palette 0 (0xFF48)
+#define OBP1(gpu) (gpu->vram[0xFF49]) // Object Palette 1 (0xFF49)
+#define WY(gpu) (gpu->vram[0xFF4A]) // Window Y (0xFF4A)
+#define WX(gpu) (gpu->vram[0xFF4B]) // Window X (0xFF4B)
+#define STAT(gpu) (gpu->vram[0xFF41]) // LCD Status (0xFF41)
+#define LCDC(gpu) (gpu->vram[0xFF40]) // LCD Control (0xFF40)
+#define LCDC_MODE(gpu) ((gpu)->vram[0xFF41] & 0x03) // LCDC Mode bits (0xFF41)
+
 #define REQUEST_INTERRUPT(gpu, flag) \
-    (gpu->cpu_bus[0xFF0F] |= (flag))
+    (gpu->vram[0xFF0F] |= (flag))
 
 typedef struct {
     uint8_t data[16];  // each row = 2 bytes (8 pixels × 2 bits)
@@ -58,21 +70,12 @@ struct oam_entry {
 };
 
 struct GPU {
-    uint8_t vram[VRAM_SIZE]; // Video RAM
+    uint8_t *vram; // Pointer to VRAM (0x8000 - 0x9FFF)
     Tile tiles[384]; // 384 tiles, each 16 bytes (8x8 pixels)
     uint8_t framebuffer[SCREEN_WIDTH * SCREEN_HEIGHT]; // Framebuffer for rendering
     uint8_t registers[0xFF]; // GPU registers (0xFF40 - 0xFF4B)
     struct oam_entry oam_entries[40]; // Object Attribute Memory (OAM)
-    uint8_t *cpu_bus;
 
-    uint8_t lcdc;             // LCD Control (0xFF40)
-    uint8_t stat;             // LCD Status (0xFF41)
-    uint8_t scy, scx;         // Scroll Y/X (0xFF42/0xFF43)
-    uint8_t ly, lyc;          // Current Line, Compare Line (0xFF44/0xFF45)
-    uint8_t dma;              // DMA Transfer (0xFF46)
-    uint8_t bgp;              // BG Palette (0xFF47)
-    uint8_t obp0, obp1;       // Object Palettes (0xFF48/0xFF49)
-    uint8_t wy, wx;           // Window Y/X (0xFF4A/0xFF4B)
 
 
     uint8_t mode; // Current mode (0, 1, 2, or 3)
@@ -86,15 +89,15 @@ struct GPU {
 
 void step_gpu(struct GPU *gpu, int cycles);
 
-static inline uint8_t read_vram(struct GPU *gpu, uint16_t addr);
+uint8_t read_vram(struct GPU *gpu, uint16_t addr);
+void write_vram(struct GPU *gpu, uint16_t addr, uint8_t value);
 
 void render_background(struct GPU *gpu);
 void render_window(struct GPU *gpu);
 void render_sprites(struct GPU *gpu);
 
 
-static void maybe_trigger_stat_interrupt(struct GPU *gpu, int mode);
+void maybe_trigger_stat_interrupt(struct GPU *gpu, int mode);
 
 
-static inline void write_vram(struct GPU *gpu, uint16_t addr, uint8_t value);
 #endif // GRAPHICS_H
