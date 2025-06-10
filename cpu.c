@@ -25,6 +25,8 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
 
     cpu->halted = false;
     cpu->ime = false;
+    cpu->ime_pending = false; // Initialize IME pending state to false
+    cpu->divider_cycles = 0; // Initialize cycles until next interrupt to 0
     cpu->bus.memory[0xFFFF] = 0x00; // Initialize interrupt flags to 0
     cpu->bus.memory[0xFF0F] = 0x00; // Initialize interrupt enable register to 0
     cpu->bus.memory[0xFF00] = 0x00; // Initialize joypad register to 0
@@ -32,6 +34,18 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
 
 
 void step_cpu(struct CPU *cpu) {
+    // Check if IME is pending and set it
+    if (cpu->ime_pending) {
+        cpu->ime = true; // Set IME to true
+        cpu->ime_pending = false; // Clear pending state
+    }
+
+    if (cpu->ime) {
+        cpu_handle_interrupts(cpu);
+
+    }
+
+
     cpu->cycles = 4;
     if (cpu->halted) {
         // If CPU is halted, just return without executing an instruction
@@ -39,7 +53,17 @@ void step_cpu(struct CPU *cpu) {
     }
 
     uint8_t opcode = cpu->bus.memory[cpu->pc++];
+
+    int change = cpu->bus.memory[0xFF0f];
+
+
+
     exec_inst(cpu, opcode);
+
+    if (cpu->bus.memory[0xFF0F] != change) {
+        // If the interrupt enable register has changed, set IME pending
+       printf("Interrupt flags register changed: %02X -> %02X at opcode %02X\n", change, cpu->bus.memory[0xFF0F], opcode);
+    }
 
 }
 
@@ -53,33 +77,34 @@ void cpu_interrupt_jump(struct CPU *cpu, uint16_t vector) {
     cpu->pc = vector;
     cpu->ime = false; // Disable IME until EI
     cpu->halted = false; // Resume CPU if halted
+    cpu->cycles += 20; // Interrupt handling takes 20 cycles
 }
 
 void cpu_handle_interrupts(struct CPU *cpu) {
-    if (cpu->ime) {
-        // Check if any interrupts are enabled
-        uint8_t interrupt_flags = cpu->bus.memory[0xFFFF]; // Read interrupt flags from memory
-        if (interrupt_flags & 0x01) { // V-Blank Interrupt
-            cpu_interrupt_jump(cpu, 0x0040);
-            interrupt_flags &= ~0x01; // Clear the V-Blank flag
-        } else if (interrupt_flags & 0x02) { // LCDC Interrupt
-            cpu_interrupt_jump(cpu, 0x0048);
-            interrupt_flags &= ~0x02; // Clear the LCDC flag
-        } else if (interrupt_flags & 0x04) { // Timer Interrupt
-            cpu_interrupt_jump(cpu, 0x0050);
-            interrupt_flags &= ~0x04; // Clear the Timer flag
-        } else if (interrupt_flags & 0x08) { // Serial Interrupt
-            cpu_interrupt_jump(cpu, 0x0058);
-            interrupt_flags &= ~0x08; // Clear the Serial flag
-        } else if (interrupt_flags & 0x10) { // Joypad Interrupt
-            cpu_interrupt_jump(cpu, 0x0060);
-            interrupt_flags &= ~0x10; // Clear the Joypad flag
-        }
-        cpu->bus.memory[0xFFFF] = interrupt_flags; // Write back updated flags
+    if (!cpu->ime) return;
+
+    uint8_t interrupt_flags = cpu->bus.memory[0xFF0F];  // Correct: IF register
+    uint8_t interrupt_enable = cpu->bus.memory[0xFFFF]; // Correct: IE register
+
+    uint8_t enabled_interrupts = interrupt_flags & interrupt_enable & 0x1F; // Lower 5 bits
+
+    if (enabled_interrupts & 0x01) { // VBlank
+        cpu_interrupt_jump(cpu, 0x0040);
+        WRITE_BYTE(cpu, 0xFF0F, interrupt_flags & ~0x01); // Clear VBlank flag
+    } else if (enabled_interrupts & 0x02) { // LCD STAT
+        cpu_interrupt_jump(cpu, 0x0048);
+        WRITE_BYTE(cpu, 0xFF0F, interrupt_flags & ~0x02); // Clear LCD STAT flag
+    } else if (enabled_interrupts & 0x04) { // Timer
+        cpu_interrupt_jump(cpu, 0x0050);
+        WRITE_BYTE(cpu, 0xFF0F, interrupt_flags & ~0x04); // Clear Timer flag
+    } else if (enabled_interrupts & 0x08) { // Serial
+        cpu_interrupt_jump(cpu, 0x0058);
+        WRITE_BYTE(cpu, 0xFF0F, interrupt_flags & ~0x08); // Clear Serial flag
+    } else if (enabled_interrupts & 0x10) { // Joypad
+        cpu_interrupt_jump(cpu, 0x0060);
+        WRITE_BYTE(cpu, 0xFF0F, interrupt_flags & ~0x10); // Clear Joypad flag
     }
 }
-
-
 
 
 
@@ -104,7 +129,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             cpu->regs.b = INC(cpu->regs.b);
             cpu->f.zero = (cpu->regs.b == 0);
             cpu->f.half_carry = ((cpu->regs.b - 1) & 0x0F) == 0x0F; // Check half carry
-            cpu->f.subtraction = false; // N flag is always false for INC
+            cpu->f.subtraction = false;
             cpu->cycles = 8; // INC B takes 8 cycles
             break;
         case 0x05: // DEC B
@@ -397,8 +422,9 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0x2A: // LD A,(HL+)
-            cpu->regs.a = cpu->bus.memory[cpu->regs.hl++];
-            cpu->cycles = 8;
+            cpu->regs.a = READ_BYTE(cpu, cpu->regs.hl);
+            cpu->regs.hl++;
+            cpu->cycles = 8; // LD A,(HL+) takes 8 cycles
             break;
 
         case 0x2B: // DEC HL
@@ -1945,7 +1971,9 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0xF3: // DI
+            cpu->ime_pending = false; // Disable interrupts immediately
             cpu->ime = false;  // Clear the interrupt master enable flag
+
             break;
 
         case 0xF4: // (unofficial, usually NOP or illegal)
@@ -2005,8 +2033,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0xFB: // EI
-            // Enable interrupts (implementation depends on interrupt logic)
-            cpu->ime = true;  // Set the interrupt master enable flag
+            // Enable interrupts (implementation depends on interrupt logic) 
+            cpu->ime_pending = true; // Set a flag to enable interrupts on the next instruction
             break;
 
         case 0xFC: // (unofficial, usually NOP or illegal)

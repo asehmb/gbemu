@@ -59,7 +59,9 @@ struct CPU {
     struct flags f; // Flags register
     bool halted; // Halt state
     bool ime;
-    int cycles; // Number of cycles to execute
+    bool ime_pending; // IME pending state
+    uint8_t cycles; // Number of cycles to execute
+    uint16_t divider_cycles; // Divider cycles for timer
 };
 
 /* MACROS FOR QUICK ACCESS */
@@ -117,7 +119,16 @@ struct CPU {
 #define DEC(x) ((x) - 1)
 /*TODO: REMOVE THE 0x90 IF STATEMENT ITS FOR DEBUGGING*/
 #define READ_BYTE(cpu, addr) ((addr == 0xFF44) ? 0x90 : (cpu)->bus.memory[(addr)])
-#define WRITE_BYTE(cpu, addr, value) ((cpu)->bus.memory[(addr)] = (value))
+#define WRITE_BYTE(cpu, addr, value) \
+    do { \
+        if ((addr) == 0xFF04) { \
+            (cpu)->bus.memory[(addr)] = 0; /* Reset DIV register */ \
+            (cpu)->divider_cycles = 0; \
+        } else { \
+            (cpu)->bus.memory[(addr)] = (value); \
+        } \
+    } while (0)
+
 #define READ_WORD(cpu, addr) \
     ((READ_BYTE(cpu, (addr)) | (READ_BYTE(cpu, (addr) + 1) << 8)))
 #define WRITE_WORD(cpu, addr, value) \
