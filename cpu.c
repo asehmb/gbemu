@@ -2026,6 +2026,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
         case 0xFA: // LD A,(nn)
             {
                 uint16_t addr = READ_WORD(cpu, cpu->pc);
+                printf("LD A,(0x%04X) value read=0x%02X\n", addr, READ_BYTE(cpu, addr));
                 cpu->pc += 2;
                 cpu->regs.a = READ_BYTE(cpu, addr);
                 cpu->cycles = 16;
@@ -2084,7 +2085,7 @@ void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
         case 0x03: reg_ptr = &cpu->regs.e; break;
         case 0x04: reg_ptr = (uint8_t*)(&cpu->regs.hl)+1; is_h = 1; break; // (H)
         case 0x05: reg_ptr = (uint8_t*)(&cpu->regs.hl); is_h = 2; break; // (L)
-        case 0x06: reg_ptr = &cpu->bus.memory[cpu->regs.hl]; left = false; break; // (HL)
+        case 0x06: reg_ptr = &cpu->bus.memory[cpu->regs.hl]; break; // (HL)
         case 0x07: reg_ptr = &cpu->regs.a; break;
         case 0x08: reg_ptr = &cpu->regs.b; left = false; break; // RLC B
         case 0x09: reg_ptr = &cpu->regs.c; left = false; break; // RLC C
@@ -2124,11 +2125,13 @@ void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
                 break;
             case 0x02: // SLA
                 {
+                    uint8_t old_value = *reg_ptr;
+                    cpu->f.carry = (old_value & 0x80) != 0;
                     *reg_ptr <<= 1;
                     cpu->f.zero = (*reg_ptr == 0);
                     cpu->f.subtraction = false;
                     cpu->f.half_carry = false;
-                    cpu->f.carry = (*reg_ptr & 0x80) != 0;
+
                 }
                 break;
             case 0x03: // SWAP
@@ -2252,6 +2255,7 @@ void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
                 break;
             case 0x02: // SRA
                 {
+                    cpu->f.carry = (*reg_ptr & 0x01) != 0; // Carry is the last bit
                     *reg_ptr >>= 1;
                     cpu->f.zero = (*reg_ptr == 0);
                     cpu->f.subtraction = false;

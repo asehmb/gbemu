@@ -55,7 +55,7 @@ int main() {
 
     // Load a ROM or set up initial state
     // ...
-    if (load_rom(&cpu, "testing/cpu_instrs/individual/11-op a,(hl).gb") != 0) {
+    if (load_rom(&cpu, "testing/cpu_instrs/individual/03-op sp,hl.gb") != 0) {
         return -1; // Exit if ROM loading fails
     }
     printf("ROM loaded successfully.\n");
