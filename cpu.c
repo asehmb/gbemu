@@ -1,5 +1,7 @@
 #include "cpu.h"
 #include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
 
 
 void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
@@ -12,17 +14,19 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
     cpu->regs.hl = 0x014D;
     cpu->cycles = 0; // Initialize cycles to 0
 
-    cpu->pc = 0x0000; // Start of the program counter
-    cpu->sp = 0x0100;
+    cpu->pc = 0x0100; // Set PC to the start of the program
+    cpu->sp = 0xFFFE; // Initialize stack pointer to 0xFFFE
 
     cpu->bus = *bus;
     cpu->f.zero = true;
     cpu->f.subtraction = false;
-    cpu->f.half_carry = false;
-    cpu->f.carry = false;
+    cpu->f.half_carry = true;
+    cpu->f.carry = true;
 
     cpu->halted = false;
     cpu->ime = false;
+    cpu->ime_pending = false; // Initialize IME pending state to false
+    cpu->divider_cycles = 0; // Initialize cycles until next interrupt to 0
     cpu->bus.memory[0xFFFF] = 0x00; // Initialize interrupt flags to 0
     cpu->bus.memory[0xFF0F] = 0x00; // Initialize interrupt enable register to 0
     cpu->bus.memory[0xFF00] = 0x00; // Initialize joypad register to 0
@@ -30,6 +34,18 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
 
 
 void step_cpu(struct CPU *cpu) {
+    // Check if IME is pending and set it
+    if (cpu->ime_pending) {
+        cpu->ime = true; // Set IME to true
+        cpu->ime_pending = false; // Clear pending state
+    }
+
+    if (cpu->ime) {
+        cpu_handle_interrupts(cpu);
+
+    }
+
+
     cpu->cycles = 4;
     if (cpu->halted) {
         // If CPU is halted, just return without executing an instruction
@@ -37,6 +53,7 @@ void step_cpu(struct CPU *cpu) {
     }
 
     uint8_t opcode = cpu->bus.memory[cpu->pc++];
+
     exec_inst(cpu, opcode);
 
 }
@@ -51,33 +68,34 @@ void cpu_interrupt_jump(struct CPU *cpu, uint16_t vector) {
     cpu->pc = vector;
     cpu->ime = false; // Disable IME until EI
     cpu->halted = false; // Resume CPU if halted
+    cpu->cycles += 20; // Interrupt handling takes 20 cycles
 }
 
 void cpu_handle_interrupts(struct CPU *cpu) {
-    if (cpu->ime) {
-        // Check if any interrupts are enabled
-        uint8_t interrupt_flags = cpu->bus.memory[0xFFFF]; // Read interrupt flags from memory
-        if (interrupt_flags & 0x01) { // V-Blank Interrupt
-            cpu_interrupt_jump(cpu, 0x0040);
-            interrupt_flags &= ~0x01; // Clear the V-Blank flag
-        } else if (interrupt_flags & 0x02) { // LCDC Interrupt
-            cpu_interrupt_jump(cpu, 0x0048);
-            interrupt_flags &= ~0x02; // Clear the LCDC flag
-        } else if (interrupt_flags & 0x04) { // Timer Interrupt
-            cpu_interrupt_jump(cpu, 0x0050);
-            interrupt_flags &= ~0x04; // Clear the Timer flag
-        } else if (interrupt_flags & 0x08) { // Serial Interrupt
-            cpu_interrupt_jump(cpu, 0x0058);
-            interrupt_flags &= ~0x08; // Clear the Serial flag
-        } else if (interrupt_flags & 0x10) { // Joypad Interrupt
-            cpu_interrupt_jump(cpu, 0x0060);
-            interrupt_flags &= ~0x10; // Clear the Joypad flag
-        }
-        cpu->bus.memory[0xFFFF] = interrupt_flags; // Write back updated flags
+    if (!cpu->ime) return;
+
+    uint8_t interrupt_flags = cpu->bus.memory[0xFF0F];  // Correct: IF register
+    uint8_t interrupt_enable = cpu->bus.memory[0xFFFF]; // Correct: IE register
+
+    uint8_t enabled_interrupts = interrupt_flags & interrupt_enable & 0x1F; // Lower 5 bits
+
+    if (enabled_interrupts & 0x01) { // VBlank
+        cpu_interrupt_jump(cpu, 0x0040);
+        WRITE_BYTE(cpu, 0xFF0F, interrupt_flags & ~0x01); // Clear VBlank flag
+    } else if (enabled_interrupts & 0x02) { // LCD STAT
+        cpu_interrupt_jump(cpu, 0x0048);
+        WRITE_BYTE(cpu, 0xFF0F, interrupt_flags & ~0x02); // Clear LCD STAT flag
+    } else if (enabled_interrupts & 0x04) { // Timer
+        cpu_interrupt_jump(cpu, 0x0050);
+        WRITE_BYTE(cpu, 0xFF0F, interrupt_flags & ~0x04); // Clear Timer flag
+    } else if (enabled_interrupts & 0x08) { // Serial
+        cpu_interrupt_jump(cpu, 0x0058);
+        WRITE_BYTE(cpu, 0xFF0F, interrupt_flags & ~0x08); // Clear Serial flag
+    } else if (enabled_interrupts & 0x10) { // Joypad
+        cpu_interrupt_jump(cpu, 0x0060);
+        WRITE_BYTE(cpu, 0xFF0F, interrupt_flags & ~0x10); // Clear Joypad flag
     }
 }
-
-
 
 
 
@@ -102,7 +120,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             cpu->regs.b = INC(cpu->regs.b);
             cpu->f.zero = (cpu->regs.b == 0);
             cpu->f.half_carry = ((cpu->regs.b - 1) & 0x0F) == 0x0F; // Check half carry
-            cpu->f.subtraction = false; // N flag is always false for INC
+            cpu->f.subtraction = false;
             cpu->cycles = 8; // INC B takes 8 cycles
             break;
         case 0x05: // DEC B
@@ -113,7 +131,6 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
         case 0x06: // LD B,n
             cpu->regs.b = cpu->bus.memory[cpu->pc++];
-
             cpu->cycles = 8; // LD B,n takes 12 cycles
             break;
         case 0x07: // RLCA
@@ -307,10 +324,15 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0x21: // LD HL,nn
-            cpu->regs.hl = (cpu->bus.memory[cpu->pc] | (cpu->bus.memory[cpu->pc + 1] << 8));
+        {
+            uint8_t high, low;
+            low = cpu->bus.memory[cpu->pc];
+            high = cpu->bus.memory[cpu->pc + 1];
+            cpu->regs.hl = high << 8 | low; // Combine high and low bytes
             cpu->pc += 2;
             cpu->cycles = 12; // LD HL,nn takes 12 cycles
             break;
+        }
 
         case 0x22: // LD (HL+),A
             cpu->bus.memory[cpu->regs.hl++] = cpu->regs.a;
@@ -396,8 +418,9 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0x2A: // LD A,(HL+)
-            cpu->regs.a = cpu->bus.memory[cpu->regs.hl++];
-            cpu->cycles = 8;
+            cpu->regs.a = READ_BYTE(cpu, cpu->regs.hl);
+            cpu->regs.hl++;
+            cpu->cycles = 8; // LD A,(HL+) takes 8 cycles
             break;
 
         case 0x2B: // DEC HL
@@ -406,7 +429,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0x2C: // INC L
-            SET_L(cpu, GET_L(cpu) + 1);
+            SET_L(cpu, (uint8_t)(GET_L(cpu) + 1));
             cpu->f.zero = (GET_L(cpu) == 0);
             cpu->f.half_carry = ((GET_L(cpu) - 1) & 0x0F) == 0x0F; // Check half carry
             cpu->f.subtraction = false; // N flag is always false for INC
@@ -1379,7 +1402,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0xAF: // XOR A
             cpu->regs.a ^= cpu->regs.a;
-            cpu->f.zero = 1;
+            cpu->f.zero = (cpu->regs.a == 0);
             cpu->f.subtraction = false;
             cpu->f.half_carry = false;
             cpu->f.carry = false;
@@ -1540,8 +1563,9 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0xC1: // POP BC
-            cpu->regs.c = READ_BYTE(cpu, cpu->sp++);
-            cpu->regs.b = READ_BYTE(cpu, cpu->sp++);
+            cpu->regs.c = READ_BYTE(cpu, cpu->sp);
+            cpu->regs.b = READ_BYTE(cpu, cpu->sp + 1);
+            cpu->sp += 2;
             cpu->cycles = 12;
             break;
 
@@ -1630,8 +1654,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
         case 0xCB: // cb prefix
             // Handle CB-prefixed opcodes here
-            _exec_cb_inst(cpu, opcode);
-            cpu->pc++;
+            _exec_cb_inst(cpu, cpu->bus.memory[cpu->pc++]);
             break;
 
         case 0xCC: // CALL Z,nn
@@ -1686,8 +1709,9 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0xD1: // POP DE
-            cpu->regs.e = READ_BYTE(cpu, cpu->sp++);
-            cpu->regs.d = READ_BYTE(cpu, cpu->sp++);
+            cpu->regs.e = READ_BYTE(cpu, cpu->sp);
+            cpu->regs.d = READ_BYTE(cpu, cpu->sp + 1);
+            cpu->sp += 2;
             cpu->cycles = 12;
             break;
 
@@ -1806,7 +1830,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0xDF: // RST 18H
             cpu->sp -= 2;
-            WRITE_WORD(cpu, cpu->sp, cpu->pc);
+            cpu->bus.memory[cpu->sp]     = cpu->pc & 0xFF;  // Write low byte
+            cpu->bus.memory[cpu->sp + 1] = cpu->pc >> 8;    // Write high byte
             cpu->pc = 0x0018;
             cpu->cycles = 16;
             break;
@@ -1819,8 +1844,9 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0xE1: // POP HL
-            SET_L(cpu, READ_BYTE(cpu, cpu->sp++));
-            SET_H(cpu, READ_BYTE(cpu, cpu->sp++));
+            SET_L(cpu, READ_BYTE(cpu, cpu->sp));
+            SET_H(cpu, READ_BYTE(cpu, cpu->sp+1));
+            cpu->sp += 2;
             cpu->cycles = 12;
             break;
 
@@ -1941,7 +1967,9 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0xF3: // DI
+            cpu->ime_pending = false; // Disable interrupts immediately
             cpu->ime = false;  // Clear the interrupt master enable flag
+
             break;
 
         case 0xF4: // (unofficial, usually NOP or illegal)
@@ -2001,8 +2029,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0xFB: // EI
-            // Enable interrupts (implementation depends on interrupt logic)
-            cpu->ime = true;  // Set the interrupt master enable flag
+            // Enable interrupts (implementation depends on interrupt logic) 
+            cpu->ime_pending = true; // Set a flag to enable interrupts on the next instruction
             break;
 
         case 0xFC: // (unofficial, usually NOP or illegal)
@@ -2040,35 +2068,36 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
 void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
     cpu->cycles = 8;
-    uint8_t reg = (opcode & 0x0F); // lower nibble of the opcode
-    uint8_t instruction = (opcode & 0xF0) >> 4; // upper nibble of the opcode
     uint8_t *reg_ptr = NULL;
     bool left = true;
     uint8_t is_h = 0; // 1 if h 2 if L 0 if some other register
+    uint8_t reg = opcode & 0x0F;
+    uint8_t instruction = (opcode & 0xF0) >> 4;
     switch (reg) {
         case 0x00: reg_ptr = &cpu->regs.b; break;
         case 0x01: reg_ptr = &cpu->regs.c; break;
         case 0x02: reg_ptr = &cpu->regs.d; break;
         case 0x03: reg_ptr = &cpu->regs.e; break;
-        case 0x04: reg_ptr = (uint8_t*)(&cpu->regs.hl) + 1; is_h = 1; break; // H is the high byte of HL
-        case 0x05: reg_ptr = (uint8_t*)(&cpu->regs.hl); is_h = 2; break; // L is the low byte of HL
-        case 0x06: reg_ptr = &cpu->bus.memory[cpu->regs.hl]; cpu->cycles = 16; break; // (HL) is a memory address
+        case 0x04: reg_ptr = (uint8_t*)(&cpu->regs.hl)+1; is_h = 1; break; // (H)
+        case 0x05: reg_ptr = (uint8_t*)(&cpu->regs.hl); is_h = 2; break; // (L)
+        case 0x06: reg_ptr = &cpu->bus.memory[cpu->regs.hl]; break; // (HL)
         case 0x07: reg_ptr = &cpu->regs.a; break;
-        case 0x08: reg_ptr = &cpu->regs.b; left = false; break;
-        case 0x09: reg_ptr = &cpu->regs.c; left = false; break;
-        case 0x0A: reg_ptr = &cpu->regs.d; left = false; break;
-        case 0x0B: reg_ptr = &cpu->regs.e; left = false; break;
-        case 0x0C: reg_ptr = (uint8_t*)(&cpu->regs.hl) + 1; left = false; is_h = 1; break; // H is the high byte of HL
-        case 0x0D: reg_ptr = (uint8_t*)(&cpu->regs.hl); left = false; is_h = 2; break; // L is the low byte of HL
-        case 0x0E: reg_ptr =&cpu->bus.memory[cpu->regs.hl]; left = false; cpu->cycles = 16; break;
-        case 0x0F: reg_ptr = &cpu->regs.a; left = false; break;
+        case 0x08: reg_ptr = &cpu->regs.b; left = false; break; // B
+        case 0x09: reg_ptr = &cpu->regs.c; left = false; break; // C
+        case 0x0A: reg_ptr = &cpu->regs.d; left = false; break; // D
+        case 0x0B: reg_ptr = &cpu->regs.e; left = false; break; // E
+        case 0x0C: reg_ptr = (uint8_t*)(&cpu->regs.hl)+1; left = false; is_h = 1; break; // H
+        case 0x0D: reg_ptr = (uint8_t*)(&cpu->regs.hl); left = false; is_h = 2; break; // L
+        case 0x0E: reg_ptr = &cpu->bus.memory[cpu->regs.hl]; left = false; break; // (HL)
+        case 0x0F: reg_ptr = &cpu->regs.a; left = false; break; // RLC A
         default:
-            fprintf(stderr, "Invalid CB register: 0x%02X\n", reg);
+            fprintf(stderr, "Unknown CB register: %d\n", reg);
             return;
     }
     if (left) {
         switch (instruction) {
             case 0x00: // RLC
+            {
                 uint8_t old_value = *reg_ptr;
                 *reg_ptr = (*reg_ptr << 1) | (*reg_ptr >> 7);
                 cpu->f.zero = (*reg_ptr == 0);
@@ -2076,6 +2105,7 @@ void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
                 cpu->f.half_carry = false;
                 cpu->f.carry = (old_value & 0x80) != 0;
                 break;
+            }
 
             case 0x01: // RL
                 {
@@ -2090,11 +2120,13 @@ void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
                 break;
             case 0x02: // SLA
                 {
+                    uint8_t old_value = *reg_ptr;
+                    cpu->f.carry = (old_value & 0x80) != 0;
                     *reg_ptr <<= 1;
                     cpu->f.zero = (*reg_ptr == 0);
                     cpu->f.subtraction = false;
                     cpu->f.half_carry = false;
-                    cpu->f.carry = (*reg_ptr & 0x80) != 0;
+
                 }
                 break;
             case 0x03: // SWAP
@@ -2218,6 +2250,7 @@ void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
                 break;
             case 0x02: // SRA
                 {
+                    cpu->f.carry = (*reg_ptr & 0x01) != 0; // Carry is the last bit
                     *reg_ptr >>= 1;
                     cpu->f.zero = (*reg_ptr == 0);
                     cpu->f.subtraction = false;
@@ -2225,13 +2258,13 @@ void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
                     cpu->f.carry = (*reg_ptr & 0x01) != 0; // Carry is the last bit
                 }
                 break;
-            case 0x03: // SWAP
+            case 0x03: // SRL
                 {
-                    *reg_ptr = (*reg_ptr >> 4) | (*reg_ptr << 4);
+                    cpu->f.carry = (*reg_ptr & 0x01) ? true : false; // Carry is the last bit
+                    *reg_ptr >>= 1;
                     cpu->f.zero = (*reg_ptr == 0);
                     cpu->f.subtraction = false;
                     cpu->f.half_carry = false;
-                    cpu->f.carry = false; // No carry for SWAP
                 }
                 break;
             case 0x04: // BIT 1, reg
@@ -2321,7 +2354,7 @@ void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
     }
 
     // sync HL with h and l
-    if (is_h !=0){
+    if (is_h){
         if (is_h == 1) {
             // H was modified, update high byte of hl
             cpu->regs.hl = (cpu->regs.hl & 0x00FF) | (*reg_ptr << 8);

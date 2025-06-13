@@ -32,50 +32,32 @@ void write_vram(struct GPU *gpu, uint16_t addr, uint8_t value) {
 
 }
 
-void render_tile_line(struct GPU *gpu, int tile_index, uint8_t palette) {
-    // Render a single line of a tile to the framebuffer
-    Tile *tile = &gpu->tiles[tile_index];
-    uint8_t *framebuffer = gpu->framebuffer;
-
-    for (int x = 0; x < 8; x++) {
-        int pixel = (tile->data[LY(gpu) * 2] >> (7 - x)) & 1;
-        pixel |= ((tile->data[LY(gpu) * 2 + 1] >> (7 - x)) & 1) << 1;
-
-        // Apply palette
-        uint8_t color = (palette >> (pixel * 2)) & 0x03;
-
-        int screen_x = (SCX(gpu) * 8 + x) % SCREEN_WIDTH;
-        int screen_y = (SCY(gpu)) * 8 + LY(gpu) % SCREEN_HEIGHT;
-
-        if (screen_x < SCREEN_WIDTH && screen_y < SCREEN_HEIGHT) {
-            framebuffer[screen_y * SCREEN_WIDTH + screen_x] = color;
-        }
-    }
-}
 
 void maybe_trigger_stat_interrupt(struct GPU *gpu, int mode) {
     uint8_t stat = STAT(gpu);
 
-    // Mode flags in STAT register:
-    // Bit 3: HBlank
-    // Bit 4: VBlank
-    // Bit 5: OAM
-    uint8_t stat_interrupt_enabled = 0;
-
+    // Mode triggers:
     switch (mode) {
         case 0: // HBlank
-            stat_interrupt_enabled = (stat & 0x08);
+            if (stat & 0x08) {
+                REQUEST_INTERRUPT(gpu, 0x02);
+            }
             break;
         case 1: // VBlank
-            stat_interrupt_enabled = (stat & 0x10);
+            if (stat & 0x10) {
+                REQUEST_INTERRUPT(gpu, 0x02);
+            }
             break;
         case 2: // OAM
-            stat_interrupt_enabled = (stat & 0x20);
+            if (stat & 0x20) {
+                REQUEST_INTERRUPT(gpu, 0x02);
+            }
             break;
     }
 
-    if (stat_interrupt_enabled) {
-        REQUEST_INTERRUPT(gpu, 0x02); // STAT interrupt
+    // LY==LYC triggers:
+    if ((stat & 0x40) && (LY(gpu) == LYC(gpu))) {
+        REQUEST_INTERRUPT(gpu, 0x02);
     }
 }
 
@@ -85,6 +67,15 @@ void step_gpu(struct GPU *gpu, int cycles) {
 
     switch (gpu->mode) {
         case 2: // OAM Search
+            // LY==LYC check
+            if (LY(gpu) == LYC(gpu)) {
+                STAT(gpu) |= 0x04; // Coincidence flag
+                if (STAT(gpu) & 0x40) {
+                    REQUEST_INTERRUPT(gpu, 0x02); // STAT interrupt
+                }
+            } else {
+                STAT(gpu) &= ~0x04;
+            }
             if (gpu->mode_clock >= 80) {
                 gpu->mode_clock -= 80;
                 gpu->mode = 3; // Pixel Transfer
@@ -102,6 +93,7 @@ void step_gpu(struct GPU *gpu, int cycles) {
                 render_background(gpu);
                 render_window(gpu);
                 render_sprites(gpu);
+
             }
             break;
 
@@ -122,12 +114,13 @@ void step_gpu(struct GPU *gpu, int cycles) {
 
                 if (LY(gpu) == 144) {
                     gpu->mode = 1; // VBlank
+                    gpu->mode_clock = 0; // Reset mode clock for VBlank
                     REQUEST_INTERRUPT(gpu, 0x01); // VBlank interrupt
-                    maybe_trigger_stat_interrupt(gpu, 1); // VBlank STAT interrupt
                 } else {
-                    gpu->mode = 2; // OAM Search
+                    gpu->mode = 2; // Back to OAM Search
                     maybe_trigger_stat_interrupt(gpu, 2); // OAM STAT interrupt
                 }
+
             }
             break;
 
@@ -141,8 +134,8 @@ void step_gpu(struct GPU *gpu, int cycles) {
                     gpu->mode = 2; // Back to OAM Search
                     maybe_trigger_stat_interrupt(gpu, 2); // OAM STAT interrupt
 
-                    // LY==LYC check
-                    if (LY(gpu) == LYC(gpu))  {
+                } 
+                if (LY(gpu) == LYC(gpu))  {
                         STAT(gpu) |= 0x04;
                         if (STAT(gpu) & 0x40) {
                             REQUEST_INTERRUPT(gpu, 0x02); // STAT interrupt
@@ -150,17 +143,6 @@ void step_gpu(struct GPU *gpu, int cycles) {
                     } else {
                         STAT(gpu) &= ~0x04;
                     }
-                } else {
-                    // LY==LYC check during VBlank
-                    if (LY(gpu) == LYC(gpu))  {
-                        STAT(gpu) |= 0x04;
-                        if (STAT(gpu) & 0x40) {
-                            REQUEST_INTERRUPT(gpu, 0x02); // STAT interrupt
-                        }
-                    } else {
-                        STAT(gpu) &= ~0x04;
-                    }
-                }
             }
             break;
     }
