@@ -54,16 +54,7 @@ void step_cpu(struct CPU *cpu) {
 
     uint8_t opcode = cpu->bus.memory[cpu->pc++];
 
-    int change = cpu->bus.memory[0xFF0f];
-
-
-
     exec_inst(cpu, opcode);
-
-    if (cpu->bus.memory[0xFF0F] != change) {
-        // If the interrupt enable register has changed, set IME pending
-       printf("Interrupt flags register changed: %02X -> %02X at opcode %02X\n", change, cpu->bus.memory[0xFF0F], opcode);
-    }
 
 }
 
@@ -333,10 +324,15 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0x21: // LD HL,nn
-            cpu->regs.hl = (cpu->bus.memory[cpu->pc] | (cpu->bus.memory[cpu->pc + 1] << 8));
+        {
+            uint8_t high, low;
+            low = cpu->bus.memory[cpu->pc];
+            high = cpu->bus.memory[cpu->pc + 1];
+            cpu->regs.hl = high << 8 | low; // Combine high and low bytes
             cpu->pc += 2;
             cpu->cycles = 12; // LD HL,nn takes 12 cycles
             break;
+        }
 
         case 0x22: // LD (HL+),A
             cpu->bus.memory[cpu->regs.hl++] = cpu->regs.a;
@@ -1406,7 +1402,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0xAF: // XOR A
             cpu->regs.a ^= cpu->regs.a;
-            cpu->f.zero = 1;
+            cpu->f.zero = (cpu->regs.a == 0);
             cpu->f.subtraction = false;
             cpu->f.half_carry = false;
             cpu->f.carry = false;
@@ -2026,7 +2022,6 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
         case 0xFA: // LD A,(nn)
             {
                 uint16_t addr = READ_WORD(cpu, cpu->pc);
-                printf("LD A,(0x%04X) value read=0x%02X\n", addr, READ_BYTE(cpu, addr));
                 cpu->pc += 2;
                 cpu->regs.a = READ_BYTE(cpu, addr);
                 cpu->cycles = 16;
@@ -2087,13 +2082,13 @@ void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
         case 0x05: reg_ptr = (uint8_t*)(&cpu->regs.hl); is_h = 2; break; // (L)
         case 0x06: reg_ptr = &cpu->bus.memory[cpu->regs.hl]; break; // (HL)
         case 0x07: reg_ptr = &cpu->regs.a; break;
-        case 0x08: reg_ptr = &cpu->regs.b; left = false; break; // RLC B
-        case 0x09: reg_ptr = &cpu->regs.c; left = false; break; // RLC C
-        case 0x0A: reg_ptr = &cpu->regs.d; left = false; break; // RLC D
-        case 0x0B: reg_ptr = &cpu->regs.e; left = false; break; // RLC E
-        case 0x0C: reg_ptr = (uint8_t*)(&cpu->regs.hl)+1; left = false; is_h = 1; break; // RLC H
-        case 0x0D: reg_ptr = (uint8_t*)(&cpu->regs.hl); left = false; is_h = 2; break; // RLC L
-        case 0x0E: reg_ptr = &cpu->bus.memory[cpu->regs.hl]; left = false; break; // RLC (HL)
+        case 0x08: reg_ptr = &cpu->regs.b; left = false; break; // B
+        case 0x09: reg_ptr = &cpu->regs.c; left = false; break; // C
+        case 0x0A: reg_ptr = &cpu->regs.d; left = false; break; // D
+        case 0x0B: reg_ptr = &cpu->regs.e; left = false; break; // E
+        case 0x0C: reg_ptr = (uint8_t*)(&cpu->regs.hl)+1; left = false; is_h = 1; break; // H
+        case 0x0D: reg_ptr = (uint8_t*)(&cpu->regs.hl); left = false; is_h = 2; break; // L
+        case 0x0E: reg_ptr = &cpu->bus.memory[cpu->regs.hl]; left = false; break; // (HL)
         case 0x0F: reg_ptr = &cpu->regs.a; left = false; break; // RLC A
         default:
             fprintf(stderr, "Unknown CB register: %d\n", reg);

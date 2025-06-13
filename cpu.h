@@ -117,8 +117,7 @@ struct CPU {
 #define SUB(x,y) ((x) - (y))
 #define INC(x) ((x) + 1)
 #define DEC(x) ((x) - 1)
-/*TODO: REMOVE THE 0x90 IF STATEMENT ITS FOR DEBUGGING*/
-#define READ_BYTE(cpu, addr) ((addr == 0xFF44) ? 0x90 : (cpu)->bus.memory[(addr)])
+#define READ_BYTE(cpu, addr) (cpu)->bus.memory[addr]
 #define WRITE_BYTE(cpu, addr, value) \
     do { \
         if ((addr) == 0xFF04) { \
