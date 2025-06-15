@@ -23,6 +23,39 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
     cpu->f.half_carry = true;
     cpu->f.carry = true;
 
+    bus->memory[0xFF05] = 0x00;
+    bus->memory[0xFF06] = 0x00;
+    bus->memory[0xFF07] = 0x00;
+    bus->memory[0xFF10] = 0x80;
+    bus->memory[0xFF11] = 0xBF;
+    bus->memory[0xFF12] = 0xF3;
+    bus->memory[0xFF14] = 0xBF;
+    bus->memory[0xFF16] = 0x3F;
+    bus->memory[0xFF17] = 0x00;
+    bus->memory[0xFF19] = 0xBF;
+    bus->memory[0xFF1A] = 0x7F;
+    bus->memory[0xFF1B] = 0xFF;
+    bus->memory[0xFF1C] = 0x9F;
+    bus->memory[0xFF1E] = 0xBF;
+    bus->memory[0xFF20] = 0xFF;
+    bus->memory[0xFF21] = 0x00;
+    bus->memory[0xFF22] = 0x00;
+    bus->memory[0xFF23] = 0xBF;
+    bus->memory[0xFF24] = 0x77;
+    bus->memory[0xFF25] = 0xF3;
+    bus->memory[0xFF26] = 0xF1; // Sound on
+    bus->memory[0xFF40] = 0x91; // LCD Control
+    bus->memory[0xFF42] = 0x00;
+    bus->memory[0xFF43] = 0x00;
+    bus->memory[0xFF45] = 0x00;
+    bus->memory[0xFF47] = 0xFC;
+    bus->memory[0xFF48] = 0xFF;
+    bus->memory[0xFF49] = 0xFF;
+    bus->memory[0xFF4A] = 0x00;
+    bus->memory[0xFF4B] = 0x00;
+    bus->memory[0xFFFF] = 0x00; // Interrupt Enable Register
+
+
     cpu->halted = false;
     cpu->ime = false;
     cpu->ime_pending = false; // Initialize IME pending state to false
@@ -325,10 +358,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0x21: // LD HL,nn
         {
-            uint8_t high, low;
-            low = cpu->bus.memory[cpu->pc];
-            high = cpu->bus.memory[cpu->pc + 1];
-            cpu->regs.hl = high << 8 | low; // Combine high and low bytes
+            uint16_t addr = READ_WORD(cpu, cpu->pc);
+            cpu->regs.hl = addr;
             cpu->pc += 2;
             cpu->cycles = 12; // LD HL,nn takes 12 cycles
             break;
@@ -467,7 +498,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0x31: // LD SP, nn (Load immediate 16-bit into SP)
         {
-            cpu->sp = cpu->bus.memory[cpu->pc] | (cpu->bus.memory[cpu->pc + 1] << 8);
+            cpu->sp = READ_WORD(cpu, cpu->pc);
             cpu->pc += 2;
             cpu->cycles = 12; // LD SP, nn takes 12 cycles
         }
