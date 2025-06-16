@@ -210,60 +210,109 @@ void render_tile(struct GPU *gpu) {
     }
 }
 
+typedef struct {
+    uint8_t index;
+    uint8_t x;
+} SpriteInfo;
 
+int sprite_cmp(const void *a, const void *b) {
+    const SpriteInfo *s1 = (const SpriteInfo *)a;
+    const SpriteInfo *s2 = (const SpriteInfo *)b;
+    if (s1->x != s2->x) return s2->x - s1->x;
+    return s2->index - s1->index;
+}
 
+/*
+    LCDC (0xFF40) - LCD Control Register
+    Bit 7 - LCD Display Enable (0=Off, 1=On)
+    Bit 6 - Window Tile Map Display Select (0=9800-9BFF, 1=9C00-9FFF)
+    Bit 5 - Window Display Enable (0=Off, 1=On)
+    Bit 4 - BG & Window Tile Data Select (0=8800-97FF, 1=8000-8FFF)
+    Bit 3 - BG Tile Map Display Select (0=9800-9BFF, 1=9C00-9FFF)
+    Bit 2 - OBJ (Sprite) Size (0=8x8, 1=8x16)
+    Bit 1 - OBJ (Sprite) Display Enable (0=Off, 1=On)
+    Bit 0 - BG Display (for CGB see below) (0=Off, 1=On)
+ */
 void render_sprites(struct GPU *gpu) {
+    /* OAM location:
+        0xFE00 - 0xFE9F (40 sprites, each 4 bytes)
+        Each sprite has:
+        - Y coordinate (0-143)
+        - X coordinate (0-159)
+        - Tile index (0-255)
+        - Flags:
+            Bit 7: Priority (0=above BG, 1=below BG)Bit7: Sprite to Background Priority
+            Bit6: Y flip
+            Bit5: X flip
+            Bit4: Palette number
+            Bit3-0: Not used in standard gameboy
+    */
     uint8_t lcdc = LCDC(gpu);
-    bool use_8x16 = (lcdc & 0x04) != 0;
+    bool use8x16_sprites = (lcdc & 0x04) != 0; // check if 1x1 or 1x2 sprites are used
+    uint8_t ly = LY(gpu);
+    size_t drawn = 0;
+    SpriteInfo to_draw[10];
 
-    for (int i = 0; i < 40; i++) {
-        struct oam_entry *sprite = &gpu->oam_entries[i];
+    for (size_t sprite_index = 0; sprite_index < 40 && drawn < 10; sprite_index++) {
+        uint8_t index = sprite_index * 4;
+        uint8_t y_pos = gpu->vram[0xFE00 + index] - 16; // Y coordinate (subtract 16 for top margin)
+        uint8_t x_pos = gpu->vram[0xFE00 + index + 1] - 8; // X coordinate (subtract 8 for left margin)
+        uint8_t y_size = use8x16_sprites ? 16 : 8; // Sprite height
+        // check if sprite is on the current line
+        if (ly >= y_pos && ly < y_pos + y_size) {
+            to_draw[drawn++] = (SpriteInfo){
+                                    .index = sprite_index,
+                                    .x = x_pos
+                                }; // Store sprite index and X position
 
-        // OAM format: (Y, X, Tile Index, Attributes)
-        // Y and X are offset by 16 and 8 respectively
-        int sprite_y = sprite->y - 16;
-        int sprite_x = sprite->x - 8;
+        }
+    }
 
-        if (sprite->y == 0 || sprite->x == 0) continue; // Off-screen
-        if (LY(gpu) < sprite_y || LY(gpu) >= sprite_y + (use_8x16 ? 16 : 8)) continue; // Not on this scanline
-
-        uint8_t tile_index = sprite->tile_index;
-        uint8_t flags = sprite->flags;
-        bool y_flip = flags & 0x40;
-        bool x_flip = flags & 0x20;
-        bool use_obp1 = flags & 0x10;
-
-        // For 8x16 mode, the lower bit of tile_index is ignored
-        if (use_8x16) tile_index &= 0xFE;
-
-        // Determine line within tile
-        int line = LY(gpu) - sprite_y;
-        if (y_flip) {
-            line = (use_8x16 ? 15 : 7) - line;
+    // sort sprites by X position and then by index for priority
+    qsort(to_draw, drawn, sizeof(SpriteInfo), sprite_cmp);
+    for (size_t i = 0; i < drawn; i++) {
+        uint8_t base = to_draw[i].index * 4;
+        uint8_t y_pos = gpu->vram[0xFE00 + base] - 16;
+        uint8_t x_pos = gpu->vram[0xFE00 + base + 1] - 8;
+        uint8_t tile_index = gpu->vram[0xFE00 + base + 2];
+        uint8_t flags = gpu->vram[0xFE00 + base + 3];
+        if (use8x16_sprites) {
+            tile_index &= 0xFE; // force even
         }
 
-        uint16_t tile_addr = 0x8000 + tile_index * 16 + line * 2;
-        uint8_t tile_data1 = read_vram(gpu, tile_addr);
-        uint8_t tile_data2 = read_vram(gpu, tile_addr + 1);
+        bool y_flip = (flags & 0x40) != 0; // Y flip
+        bool x_flip = (flags & 0x20) != 0; // X flip
+        bool priority = (flags & 0x80) != 0; // Priority
 
-        for (int px = 0; px < 8; px++) {
-            int screen_x = sprite_x + (x_flip ? (7 - px) : px);
-            if (screen_x < 0 || screen_x >= SCREEN_WIDTH) continue;
+        uint8_t y_size = use8x16_sprites ? 16 : 8; // Sprite height
+        uint8_t line_in_sprite = ly - y_pos; // Line in sprite (0-15 for 8x16, 0-7 for 8x8)
+        if (y_flip) line_in_sprite = y_size - 1 - line_in_sprite; // Flip Y coordinate
+        line_in_sprite *= 2; // Each line has 2 bytes (8 pixels each)
 
-            uint8_t bit_index = 7 - px;
-            uint8_t color_index =
-                ((tile_data2 >> bit_index) & 1) << 1 |
-                ((tile_data1 >> bit_index) & 1);
+        uint16_t tile_addr = 0x8000 + (tile_index * 16) + line_in_sprite;
+        uint8_t data1 = read_vram(gpu, tile_addr);
+        uint8_t data2 = read_vram(gpu, tile_addr + 1);
 
-            // Color index 0 is transparent
-            if (color_index == 0) continue;
+        for (int pixel = 0; pixel < 8; pixel++) {
+            uint8_t color_index;
+            if (x_flip) {
+                color_index = ((data2 >> pixel) & 1) << 1 |
+                                ((data1 >> pixel) & 1);
+            } else {
+                color_index = ((data2 >> (7 - pixel)) & 1) << 1 |
+                                    ((data1 >> (7 - pixel)) & 1);
+            }
+            int pixel_x = x_pos + pixel;
+            if (pixel_x < 0 || pixel_x >= SCREEN_WIDTH) continue;
 
-            // Fetch color from OBP0 or OBP1
-            uint8_t palette = use_obp1 ? OBP1(gpu) : OBP0(gpu);
-            uint8_t final_color = (palette >> (color_index * 2)) & 0x03;
+            uint8_t bg_pixel = gpu->framebuffer[ly * SCREEN_WIDTH + pixel_x];
 
-            // Write to framebuffer (you may want to respect BG priority here)
-            gpu->framebuffer[LY(gpu) * SCREEN_WIDTH + screen_x] = final_color;
+            if (color_index == 0) continue; // Transparent
+            if (priority && bg_pixel != 0) continue; // Behind opaque BG
+            if (bg_pixel >= 0x10) continue; // Already drawn by another sprite
+
+            // Set pixel in framebuffer
+            gpu->framebuffer[ly * SCREEN_WIDTH + pixel_x] = color_index;
         }
     }
 }
