@@ -86,12 +86,16 @@ int main() {
     SDL_Event event;
 
     uint32_t *sdl_pixels = (uint32_t *)malloc(160 * 144 * sizeof(uint32_t));
-    const uint32_t palette[4] = {0xFFFFFFFF,  // White
-    0xFFAAAAAA,  // Light gray
-    0xFF555555,  // Dark gray
-    0xFF000000   // Black
-    }; // White to Black
-
+    uint32_t pallete[8] = {
+        0xFFFFFFFF, // White
+        0xFF555555, // Dark Gray
+        0xFFAAAAAA, // Light Gray
+        0xFF000000, // Black
+        0xFFFFFFFF, // White
+        0xFFAAAAAA, // Light Gray
+        0xFF555555, // Dark Gray
+        0xFF000000, // Black
+    };
     // Main emulation loop
     while (running) {
         while (SDL_PollEvent(&event)) {
@@ -110,7 +114,7 @@ int main() {
             // Convert framebuffer to SDL pixel format
             for (int y = 0; y < 144; y++) {
                 for (int x = 0; x < 160; x++) {
-                    sdl_pixels[y * 160 + x] = palette[gpu.framebuffer[y * 160 + x]];
+                    sdl_pixels[y * 160 + x] = pallete[gpu.framebuffer[y * 160 + x]];
                 }
             }
             SDL_UpdateTexture(texture, NULL, sdl_pixels, 160 * sizeof(uint32_t));

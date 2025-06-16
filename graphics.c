@@ -276,6 +276,7 @@ void render_sprites(struct GPU *gpu) {
         uint8_t x_pos = gpu->vram[0xFE00 + base + 1] - 8;
         uint8_t tile_index = gpu->vram[0xFE00 + base + 2];
         uint8_t flags = gpu->vram[0xFE00 + base + 3];
+        uint8_t obp = (flags & 0x10) ? OBP1(gpu) : OBP0(gpu); // Object Palette
         if (use8x16_sprites) {
             tile_index &= 0xFE; // force even
         }
@@ -302,17 +303,18 @@ void render_sprites(struct GPU *gpu) {
                 color_index = ((data2 >> (7 - pixel)) & 1) << 1 |
                                     ((data1 >> (7 - pixel)) & 1);
             }
+            if (color_index == 0) continue;
             int pixel_x = x_pos + pixel;
             if (pixel_x < 0 || pixel_x >= SCREEN_WIDTH) continue;
 
             uint8_t bg_pixel = gpu->framebuffer[ly * SCREEN_WIDTH + pixel_x];
 
-            if (color_index == 0) continue; // Transparent
             if (priority && bg_pixel != 0) continue; // Behind opaque BG
             if (bg_pixel >= 0x10) continue; // Already drawn by another sprite
+            uint8_t color_index_with_palette = (obp >> (color_index * 2)) & 0x03; // Get color index from palette
 
             // Set pixel in framebuffer
-            gpu->framebuffer[ly * SCREEN_WIDTH + pixel_x] = color_index;
+            gpu->framebuffer[ly * SCREEN_WIDTH + pixel_x] = color_index_with_palette +4; // Offset by 4 for sprites
         }
     }
 }
