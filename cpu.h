@@ -117,13 +117,18 @@ struct CPU {
 #define SUB(x,y) ((x) - (y))
 #define INC(x) ((x) + 1)
 #define DEC(x) ((x) - 1)
-#define READ_BYTE(cpu, addr) (cpu)->bus.memory[addr]
+#define READ_BYTE(cpu, addr) \
+    ((addr) == 0xFF44 ? 0x90 : (cpu)->bus.memory[(addr)])
+
 #define WRITE_BYTE(cpu, addr, value) \
     do { \
         if ((addr) == 0xFF04) { \
             (cpu)->bus.memory[(addr)] = 0; /* Reset DIV register */ \
             (cpu)->divider_cycles = 0; \
         } else { \
+            if ((addr) == 4244) { \
+                printf("WROTE TO 4244 SP:0x%4X PC:0x%4X\n", cpu->sp, cpu->pc); \
+            } \
             (cpu)->bus.memory[(addr)] = (value); \
         } \
     } while (0)

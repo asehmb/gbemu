@@ -60,9 +60,9 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
     cpu->ime = false;
     cpu->ime_pending = false; // Initialize IME pending state to false
     cpu->divider_cycles = 0; // Initialize cycles until next interrupt to 0
-    cpu->bus.memory[0xFFFF] = 0x00; // Initialize interrupt flags to 0
-    cpu->bus.memory[0xFF0F] = 0x00; // Initialize interrupt enable register to 0
-    cpu->bus.memory[0xFF00] = 0x00; // Initialize joypad register to 0
+    WRITE_BYTE(cpu, 0xFFFF, 0x00); // Initialize IE register to 0
+    WRITE_BYTE(cpu, 0xFF0F, 0x00); // Initialize IF register with some flags set
+    WRITE_BYTE(cpu, 0xFF00, 0x00); // Initialize Joypad register
 }
 
 
@@ -77,16 +77,23 @@ void step_cpu(struct CPU *cpu) {
         cpu_handle_interrupts(cpu);
 
     }
-
-
     cpu->cycles = 4;
     if (cpu->halted) {
-        // If CPU is halted, just return without executing an instruction
-        return;
+        uint8_t if_reg = cpu->bus.memory[0xFF0F];
+        uint8_t ie_reg = cpu->bus.memory[0xFFFF];
+        if ((if_reg & ie_reg) != 0) {
+            cpu->halted = false; // Wake up even if IME is 0
+            if (cpu->ime) {
+            // If IME is set, handle interrupts
+                cpu_handle_interrupts(cpu);
+            }
+        } else {
+            cpu->cycles = 4;
+            return;
+    }
     }
 
     uint8_t opcode = cpu->bus.memory[cpu->pc++];
-
     exec_inst(cpu, opcode);
 
 }
@@ -137,12 +144,12 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
         case 0x00: // NOP
             break;
         case 0x01: // _ BC,nn
-            SET_BC(cpu, (cpu->bus.memory[cpu->pc] | (cpu->bus.memory[cpu->pc + 1] << 8)));
+            SET_BC(cpu, READ_WORD(cpu, cpu->pc));
             cpu->pc += 2; // Increment PC by 2 to skip the immediate value
             cpu->cycles = 12; // LD BC,nn takes 12 cycles
             break;
         case 0x02: // LD (BC),A
-            cpu->bus.memory[GET_BC(cpu)] = cpu->regs.a;
+            WRITE_BYTE(cpu, GET_BC(cpu), cpu->regs.a);
             cpu->cycles = 8; // LD (BC),A takes 8 cycles
             break;
         case 0x03: // INC BC
@@ -163,7 +170,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             cpu->f.subtraction = true; // N flag is set for DEC
             break;
         case 0x06: // LD B,n
-            cpu->regs.b = cpu->bus.memory[cpu->pc++];
+            cpu->regs.b = READ_BYTE(cpu, cpu->pc);
+            cpu->pc++; // Increment PC by 1 to skip the immediate value
             cpu->cycles = 8; // LD B,n takes 12 cycles
             break;
         case 0x07: // RLCA
@@ -198,7 +206,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             }
             break;
         case 0x0A: // LD A,(BC)
-            cpu->regs.a = cpu->bus.memory[GET_BC(cpu)];
+            cpu->regs.a = READ_BYTE(cpu, GET_BC(cpu));
             cpu->cycles = 8;
 
             break;
@@ -220,7 +228,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             cpu->f.subtraction = true; // N flag is set for DEC
             break;
         case 0x0E: // LD C,n
-            cpu->regs.c = cpu->bus.memory[cpu->pc++];
+            cpu->regs.c = READ_BYTE(cpu, cpu->pc);
+            cpu->pc++; // Increment PC by 1 to skip the immediate value
             cpu->cycles = 8;
 
             break;
@@ -238,12 +247,12 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             cpu->halted = true; // Set halted state
             break;
         case 0x11: // LD DE,nn
-            SET_DE(cpu, (cpu->bus.memory[cpu->pc] | (cpu->bus.memory[cpu->pc + 1] << 8)));
+            SET_DE(cpu, READ_WORD(cpu, cpu->pc));
             cpu->pc += 2; // Increment PC by 2 to skip the immediate value
             cpu->cycles = 12; // LD DE,nn takes 12 cycles
             break;
         case 0x12: // LD (DE),A
-            cpu->bus.memory[GET_DE(cpu)] = cpu->regs.a;
+            WRITE_BYTE(cpu, GET_DE(cpu), cpu->regs.a);
             cpu->cycles = 8;
 
             break;
@@ -266,7 +275,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0x16: // LD D,n
-            cpu->regs.d = cpu->bus.memory[cpu->pc++];
+            cpu->regs.d = READ_BYTE(cpu, cpu->pc);
+            cpu->pc++; // Increment PC by 1 to skip the immediate value
             cpu->cycles = 8;
             break;
 
@@ -284,7 +294,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0x18: // JR n
             {
-                int8_t offset = (int8_t)cpu->bus.memory[cpu->pc++];
+                int8_t offset = (int8_t)READ_BYTE(cpu, cpu->pc);
+                cpu->pc++; // Increment PC by 1 to skip the immediate value
                 cpu->pc += offset;
                 cpu->cycles = 12; // JR takes 12 cycles
             }
@@ -304,7 +315,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0x1A: // LD A,(DE)
-            cpu->regs.a = cpu->bus.memory[GET_DE(cpu)];
+            cpu->regs.a = READ_BYTE(cpu, GET_DE(cpu));
             cpu->cycles = 8;
             break;
 
@@ -328,7 +339,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0x1E: // LD E,n
-            cpu->regs.e = cpu->bus.memory[cpu->pc++];
+            cpu->regs.e = READ_BYTE(cpu, cpu->pc);
+            cpu->pc++; // Increment PC by 1 to skip the immediate value
             cpu->cycles = 8;
             break;
 
@@ -346,7 +358,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0x20: // JR NZ,n
             {
-                int8_t offset = (int8_t)cpu->bus.memory[cpu->pc++];
+                int8_t offset = (int8_t)READ_BYTE(cpu, cpu->pc);
+                cpu->pc++; // Increment PC by 1 to skip the immediate value
                 if (!cpu->f.zero) {
                     cpu->pc += offset;
                     cpu->cycles = 12; // JR NZ,n takes 12 cycles if taken
@@ -366,7 +379,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
         }
 
         case 0x22: // LD (HL+),A
-            cpu->bus.memory[cpu->regs.hl++] = cpu->regs.a;
+            WRITE_BYTE(cpu, cpu->regs.hl, cpu->regs.a);
+            cpu->regs.hl++;
             cpu->cycles = 8;
             break;
 
@@ -389,7 +403,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0x26: // LD H,n
-            SET_H(cpu, cpu->bus.memory[cpu->pc++]);
+            SET_H(cpu, READ_BYTE(cpu, cpu->pc));
+            cpu->pc++; // Increment PC by 1 to skip the immediate value
             cpu->cycles = 8;
             break;
 
@@ -426,7 +441,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0x28: // JR Z,n
             {
-                int8_t offset = (int8_t)cpu->bus.memory[cpu->pc++];
+                int8_t offset = (int8_t)READ_BYTE(cpu, cpu->pc);
+                cpu->pc++; // Increment PC by 1 to skip the immediate value
                 if (cpu->f.zero) {
                     cpu->pc += offset;
                     cpu->cycles = 12; // JR Z,n takes 8 cycles if taken
@@ -474,7 +490,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0x2E: // LD L,n
-            SET_L(cpu, cpu->bus.memory[cpu->pc++]);
+            SET_L(cpu, READ_BYTE(cpu, cpu->pc));
+            cpu->pc++;
             cpu->cycles = 8;
 
             break;
@@ -488,7 +505,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0x30: // JR NC, r8 (Jump relative if carry flag is 0)
         {
-            int8_t offset = (int8_t)cpu->bus.memory[cpu->pc++];
+            int8_t offset = (int8_t)READ_BYTE(cpu, cpu->pc);
+            cpu->pc++; // Increment PC by 1 to skip the immediate value
             if (!cpu->f.carry) {
                 cpu->pc += offset;
                 cpu->cycles = 12; // JR NC, r8 takes 12 cycles if taken
@@ -543,7 +561,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0x36: // LD (HL), n
         {
-            uint8_t value = cpu->bus.memory[cpu->pc++];
+            uint8_t value = READ_BYTE(cpu, cpu->pc);
+            cpu->pc++; // Increment PC by 1 to skip the immediate value
             WRITE_BYTE(cpu, cpu->regs.hl, value);
             cpu->cycles = 12; // LD (HL), n takes 12 cycles
         }
@@ -557,7 +576,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0x38: // JR C, r8 (Jump relative if carry flag set)
         {
-            int8_t offset = (int8_t)cpu->bus.memory[cpu->pc++];
+            int8_t offset = (int8_t)READ_BYTE(cpu, cpu->pc);
+            cpu->pc++; // Increment PC by 1 to skip the immediate value
             if (cpu->f.carry) {
                 cpu->pc += offset;
                 cpu->cycles = 12; // JR C, r8 takes 12 cycles if taken
@@ -604,7 +624,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0x3E: // LD A, n
-            cpu->regs.a = cpu->bus.memory[cpu->pc++];
+            cpu->regs.a = READ_BYTE(cpu, cpu->pc);
+            cpu->pc++; // Increment PC by 1 to skip the immediate value
             cpu->cycles = 8;
             break;
 
@@ -614,7 +635,6 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             cpu->f.half_carry = false;
             break;
         case 0x40: // LD B,B
-            cpu->regs.b = cpu->regs.b;
             break;
 
         case 0x41: // LD B,C
@@ -1641,7 +1661,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0xC6: // ADD A,n
             {
-                uint8_t value = cpu->bus.memory[cpu->pc++];
+                uint8_t value = READ_BYTE(cpu, cpu->pc);
+                cpu->pc++; // Increment PC by 1 to skip the immediate value
                 uint16_t result = cpu->regs.a + value;
                 cpu->f.zero = ((result & 0xFF) == 0);
                 cpu->f.subtraction = false;
@@ -1685,7 +1706,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
         case 0xCB: // cb prefix
             // Handle CB-prefixed opcodes here
-            _exec_cb_inst(cpu, cpu->bus.memory[cpu->pc++]);
+            _exec_cb_inst(cpu, READ_BYTE(cpu, cpu->pc));
+            cpu->pc++;
             break;
 
         case 0xCC: // CALL Z,nn
@@ -1714,7 +1736,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0xCE: // ADC A,n
             {
-                uint8_t value = cpu->bus.memory[cpu->pc++];
+                uint8_t value = READ_BYTE(cpu, cpu->pc);
+                cpu->pc++; // Increment PC by 1 to skip the immediate value
                 uint16_t result = cpu->regs.a + value + (cpu->f.carry ? 1 : 0);
                 cpu->f.zero = ((result & 0xFF) == 0);
                 cpu->f.subtraction = false;
@@ -1781,7 +1804,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0xD6: // SUB n
             {
-                uint8_t value = cpu->bus.memory[cpu->pc++];
+                uint8_t value = READ_BYTE(cpu, cpu->pc);
+                cpu->pc++; // Increment PC by 1 to skip the immediate value
                 uint16_t result = cpu->regs.a - value;
                 cpu->f.zero = ((result & 0xFF) == 0);
                 cpu->f.subtraction = true;
@@ -1848,7 +1872,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0xDE: // SBC A,n
             {
-                uint8_t value = cpu->bus.memory[cpu->pc++];
+                uint8_t value = READ_BYTE(cpu, cpu->pc);
+                cpu->pc++; // Increment PC by 1 to skip the immediate value
                 uint16_t result = cpu->regs.a - value - (cpu->f.carry ? 1 : 0);
                 cpu->f.zero = ((result & 0xFF) == 0);
                 cpu->f.subtraction = true;
@@ -1861,14 +1886,14 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0xDF: // RST 18H
             cpu->sp -= 2;
-            cpu->bus.memory[cpu->sp]     = cpu->pc & 0xFF;  // Write low byte
-            cpu->bus.memory[cpu->sp + 1] = cpu->pc >> 8;    // Write high byte
+            WRITE_WORD(cpu, cpu->sp, cpu->pc);
             cpu->pc = 0x0018;
             cpu->cycles = 16;
             break;
         case 0xE0: // LDH (n),A
             {
-                uint8_t offset = cpu->bus.memory[cpu->pc++];
+                uint8_t offset = READ_BYTE(cpu, cpu->pc);
+                cpu->pc++; // Increment PC by 1 to skip the immediate value
                 WRITE_BYTE(cpu, 0xFF00 + offset, cpu->regs.a);
                 cpu->cycles = 16;
             }
@@ -1902,7 +1927,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0xE6: // AND n
             {
-                uint8_t value = cpu->bus.memory[cpu->pc++];
+                uint8_t value = READ_BYTE(cpu, cpu->pc);
+                cpu->pc++; // Increment PC by 1 to skip the immediate value
                 cpu->regs.a &= value;
                 cpu->f.zero = (cpu->regs.a == 0);
                 cpu->f.subtraction = false;
@@ -1921,7 +1947,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0xE8: // ADD SP,n
             {
-                int8_t offset = (int8_t)cpu->bus.memory[cpu->pc++];
+                int8_t offset = (int8_t)READ_BYTE(cpu, cpu->pc);
+                cpu->pc++; // Increment PC by 1 to skip the immediate value
                 uint16_t result = cpu->sp + offset;
                 cpu->f.zero = false;
                 cpu->f.subtraction = false;
@@ -1960,7 +1987,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0xEE: // XOR n
             {
-                uint8_t value = cpu->bus.memory[cpu->pc++];
+                uint8_t value = READ_BYTE(cpu, cpu->pc);
+                cpu->pc++; // Increment PC by 1 to skip the immediate value
                 cpu->regs.a ^= value;
                 cpu->f.zero = (cpu->regs.a == 0);
                 cpu->f.subtraction = false;
@@ -1978,7 +2006,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
         case 0xF0: // LDH A,(n)
             {
-                uint8_t offset = cpu->bus.memory[cpu->pc++];
+                uint8_t offset = READ_BYTE(cpu, cpu->pc);
+                cpu->pc++; // Increment PC by 1 to skip the immediate value
                 cpu->regs.a = READ_BYTE(cpu, 0xFF00 + offset);
                 cpu->cycles = 12;
             }
@@ -2015,7 +2044,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0xF6: // OR n
             {
-                uint8_t value = cpu->bus.memory[cpu->pc++];
+                uint8_t value = READ_BYTE(cpu, cpu->pc);
+                cpu->pc++; // Increment PC by 1 to skip the immediate value
                 cpu->regs.a |= value;
                 cpu->f.zero = (cpu->regs.a == 0);
                 cpu->f.subtraction = false;
@@ -2034,12 +2064,15 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0xF8: // LD HL,SP+n
             {
-                int8_t offset = (int8_t)cpu->bus.memory[cpu->pc++];
+                int8_t offset = (int8_t)READ_BYTE(cpu, cpu->pc);
+                cpu->pc++; // Increment PC by 1 to skip the immediate value
                 uint16_t result = cpu->sp + offset;
+                uint8_t sp_low = cpu->sp & 0xFF;
+
                 cpu->f.zero = false;
                 cpu->f.subtraction = false;
-                cpu->f.half_carry = ((cpu->sp & 0xF) + (offset & 0xF)) > 0xF;
-                cpu->f.carry = ((cpu->sp & 0xFF) + (offset & 0xFF)) > 0xFF;
+                cpu->f.half_carry = ((sp_low & 0x0F) + (offset & 0x0F)) > 0x0F;
+                cpu->f.carry = ((sp_low & 0xFF) + (offset & 0xFF)) > 0xFF;
                 cpu->regs.hl = result;
                 cpu->cycles = 12;
             }
@@ -2074,7 +2107,8 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0xFE: // CP n
             {
-                uint8_t value = cpu->bus.memory[cpu->pc++];
+                uint8_t value = READ_BYTE(cpu, cpu->pc);
+                cpu->pc++; // Increment PC by 1 to skip the immediate value
                 uint8_t result = cpu->regs.a - value;
                 cpu->f.zero = (result == 0);
                 cpu->f.subtraction = true;
@@ -2281,12 +2315,13 @@ void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
                 break;
             case 0x02: // SRA
                 {
-                    cpu->f.carry = (*reg_ptr & 0x01) != 0; // Carry is the last bit
+                    uint8_t msb = *reg_ptr & 0x80;           // Preserve bit 7
+                    cpu->f.carry = (*reg_ptr & 0x01) != 0;
                     *reg_ptr >>= 1;
+                    *reg_ptr |= msb;
                     cpu->f.zero = (*reg_ptr == 0);
                     cpu->f.subtraction = false;
                     cpu->f.half_carry = false;
-                    cpu->f.carry = (*reg_ptr & 0x01) != 0; // Carry is the last bit
                 }
                 break;
             case 0x03: // SRL

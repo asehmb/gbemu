@@ -14,9 +14,8 @@ struct Timer {
 
 
     // CLOCKS
-    uint32_t main_clock; // Main clock
-    uint32_t sub_clock; // Sub clock
-    uint32_t divider_cycles; // Cycles for divider increment
+    uint32_t tima_cycles; // Main clock
+    uint32_t div_cycles; // Cycles for divider increment
 };
 
 void step_timer(struct Timer *timer, struct CPU *cpu);
