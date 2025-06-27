@@ -118,7 +118,7 @@ struct CPU {
 #define INC(x) ((x) + 1)
 #define DEC(x) ((x) - 1)
 #define READ_BYTE(cpu, addr) \
-    ((addr) == 0xFF44 ? 0x90 : (cpu)->bus.memory[(addr)])
+    ((cpu)->bus.memory[(addr)])
 
 #define WRITE_BYTE(cpu, addr, value) \
     do { \

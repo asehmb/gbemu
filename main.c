@@ -46,12 +46,12 @@ int main() {
 
     // Load a ROM or set up initial state
     // ...
-    if (load_rom(&cpu, "testing/dmg-acid2.gb") != 0) {
+    if (load_rom(&cpu, "testing/ppu/1-lcd_sync.gb") != 0) {
         return -1; // Exit if ROM loading fails
     }
     printf("ROM loaded successfully.\n");
 
-    // FILE *log_file = fopen("testing/test.log", "w");
+    FILE *log_file = fopen("testing/test.log", "w");
 
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
@@ -105,12 +105,12 @@ int main() {
             }
         }
 
-        // fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X\n",
-        //         cpu.regs.a, PACK_FLAGS(&cpu), cpu.regs.b, cpu.regs.c, cpu.regs.d,
-        //         cpu.regs.e, GET_H(&cpu), GET_L(&cpu), cpu.sp, cpu.pc,
-        //         cpu.bus.memory[cpu.pc], cpu.bus.memory[cpu.pc + 1],
-        //         cpu.bus.memory[cpu.pc + 2], cpu.bus.memory[cpu.pc + 3]);
-        // fflush(log_file);
+        fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X\n",
+                cpu.regs.a, PACK_FLAGS(&cpu), cpu.regs.b, cpu.regs.c, cpu.regs.d,
+                cpu.regs.e, GET_H(&cpu), GET_L(&cpu), cpu.sp, cpu.pc,
+                cpu.bus.memory[cpu.pc], cpu.bus.memory[cpu.pc + 1],
+                cpu.bus.memory[cpu.pc + 2], cpu.bus.memory[cpu.pc + 3]);
+        fflush(log_file);
         step_cpu(&cpu); // Step the CPU
         step_timer(&timer, &cpu);  // Step the timer
 

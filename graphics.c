@@ -43,6 +43,13 @@ void render_scanline(struct GPU *gpu, int line) {
 
 void step_gpu(struct GPU *gpu, int cycles) {
     gpu->mode_clock += cycles;
+    if (!(LCDC(gpu) & 0x80)) {
+        gpu->mode = 2; // OAM
+        gpu->mode_clock = 0;
+        LY(gpu) = 0; // Reset LY to 0
+        STAT(gpu) &= ~0x03; // Clear mode bits
+        return;
+    }
 
     switch (gpu->mode) {
         case 2: // OAM Search (80 cycles)
@@ -72,8 +79,7 @@ void step_gpu(struct GPU *gpu, int cycles) {
             if (gpu->mode_clock >= 204) {
                 gpu->mode_clock -= 204;
                 LY(gpu)++;
-
-                // LY==LYC comparison (critical for dmg-acid2)
+                // TODO: try moving to end of step_gpu
                 if (LY(gpu) == LYC(gpu)) {
                     STAT(gpu) |= 0x04; // Set coincidence flag
                     if (STAT(gpu) & 0x40) { // LYC interrupt enabled
@@ -90,7 +96,7 @@ void step_gpu(struct GPU *gpu, int cycles) {
                     REQUEST_INTERRUPT(gpu, 0x01); // VBlank interrupt
 
                     if (STAT(gpu) & 0x10) {
-                        REQUEST_INTERRUPT(gpu, 0x02);
+                        REQUEST_INTERRUPT(gpu, 0x02); // STAT interrupt
                     }
                     gpu->should_render = true;
                 } else {
@@ -107,7 +113,7 @@ void step_gpu(struct GPU *gpu, int cycles) {
             if (gpu->mode_clock >= 456) {
                 gpu->mode_clock -= 456;
                 LY(gpu)++;
-
+                // TODO: try moving to end of step_gpu
                 // LY==LYC comparison during VBlank
                 if (LY(gpu) == LYC(gpu)) {
                     STAT(gpu) |= 0x04;
