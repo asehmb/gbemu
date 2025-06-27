@@ -46,7 +46,7 @@ int main() {
 
     // Load a ROM or set up initial state
     // ...
-    if (load_rom(&cpu, "testing/cpu_instrs/individual/09-op r,r.gb") != 0) {
+    if (load_rom(&cpu, "testing/dmg-acid2.gb") != 0) {
         return -1; // Exit if ROM loading fails
     }
     printf("ROM loaded successfully.\n");

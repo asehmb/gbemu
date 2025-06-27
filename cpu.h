@@ -126,9 +126,6 @@ struct CPU {
             (cpu)->bus.memory[(addr)] = 0; /* Reset DIV register */ \
             (cpu)->divider_cycles = 0; \
         } else { \
-            if ((addr) == 4244) { \
-                printf("WROTE TO 4244 SP:0x%4X PC:0x%4X\n", cpu->sp, cpu->pc); \
-            } \
             (cpu)->bus.memory[(addr)] = (value); \
         } \
     } while (0)

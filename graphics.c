@@ -59,6 +59,9 @@ void step_gpu(struct GPU *gpu, int cycles) {
                 gpu->mode = 0; // HBlank
 
                 // Trigger HBlank STAT interrupt if enabled
+                if (STAT(gpu) & 0x08) {
+                    REQUEST_INTERRUPT(gpu, 0x02);
+                }
 
                 // Render scanline at the END of pixel transfer
                 render_scanline(gpu, LY(gpu));
@@ -74,8 +77,7 @@ void step_gpu(struct GPU *gpu, int cycles) {
                 if (LY(gpu) == LYC(gpu)) {
                     STAT(gpu) |= 0x04; // Set coincidence flag
                     if (STAT(gpu) & 0x40) { // LYC interrupt enabled
-                        STAT(gpu) |= 0x04; // Set coincidence flag
-                        // REQUEST_INTERRUPT(gpu, 0x02); // Request LCD STAT interrupt
+                        REQUEST_INTERRUPT(gpu, 0x02); // Request LCD STAT interrupt
                     }
                 } else {
                     STAT(gpu) &= ~0x04; // Clear coincidence flag
@@ -85,12 +87,18 @@ void step_gpu(struct GPU *gpu, int cycles) {
                     // Enter VBlank
                     gpu->mode = 1;
                     gpu->mode_clock = 0;
-                    // REQUEST_INTERRUPT(gpu, 0x02); // VBlank interrupt
+                    REQUEST_INTERRUPT(gpu, 0x01); // VBlank interrupt
 
+                    if (STAT(gpu) & 0x10) {
+                        REQUEST_INTERRUPT(gpu, 0x02);
+                    }
                     gpu->should_render = true;
                 } else {
                     // Back to OAM Search
                     gpu->mode = 2;
+                    if (STAT(gpu) & 0x20) {
+                        REQUEST_INTERRUPT(gpu, 0x02);
+                    }
                 }
             }
             break;
@@ -104,7 +112,7 @@ void step_gpu(struct GPU *gpu, int cycles) {
                 if (LY(gpu) == LYC(gpu)) {
                     STAT(gpu) |= 0x04;
                     if (STAT(gpu) & 0x40) {
-                        // REQUEST_INTERRUPT(gpu, 0x02);
+                        REQUEST_INTERRUPT(gpu, 0x02);
                     }
                 } else {
                     STAT(gpu) &= ~0x04;
@@ -116,8 +124,7 @@ void step_gpu(struct GPU *gpu, int cycles) {
                     gpu->window_line = 0; // Reset window line
                     // Trigger OAM STAT interrupt if enabled
                     if (STAT(gpu) & 0x20) {
-                        STAT(gpu) |= 0x02; // Set OAM interrupt flag
-                        // REQUEST_INTERRUPT(gpu, 0x02); // Request LCD STAT interrupt
+                        REQUEST_INTERRUPT(gpu, 0x02); // Request LCD STAT interrupt
                     }
                 }
             }
