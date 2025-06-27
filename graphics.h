@@ -73,16 +73,15 @@ struct GPU {
     uint8_t *vram; // Pointer to VRAM (0x8000 - 0x9FFF)
     Tile tiles[384]; // 384 tiles, each 16 bytes (8x8 pixels)
     uint8_t framebuffer[SCREEN_WIDTH * SCREEN_HEIGHT]; // Framebuffer for rendering
-    uint8_t registers[0xFF]; // GPU registers (0xFF40 - 0xFF4B)
     struct oam_entry oam_entries[40]; // Object Attribute Memory (OAM)
-
-
 
     uint8_t mode; // Current mode (0, 1, 2, or 3)
     int mode_clock; // Mode clock for timing (up to 456 cycles)
 
     uint8_t tile_index; // Current tile index for rendering
 
+    bool should_render; // Flag to indicate if rendering should occur
+    uint8_t window_line;
 
 
 };
@@ -92,7 +91,7 @@ void step_gpu(struct GPU *gpu, int cycles);
 uint8_t read_vram(struct GPU *gpu, uint16_t addr);
 void write_vram(struct GPU *gpu, uint16_t addr, uint8_t value);
 
-void render_background(struct GPU *gpu);
+void render_tile(struct GPU *gpu);
 void render_window(struct GPU *gpu);
 void render_sprites(struct GPU *gpu);
 

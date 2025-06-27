@@ -24,8 +24,9 @@ int load_rom(struct CPU *cpu, const char *filename) {
 int main() {
 
     struct CPU cpu;
+    uint8_t memory[65536]; // 64KB memory
     struct MemoryBus bus = {
-        .memory = (uint8_t[65536]){0}, // Allocate 64KB memory
+        .memory = memory, // Allocate 64KB memory
         .size = 65536
     };
     // Initialize GPU and CPU
@@ -37,24 +38,20 @@ int main() {
         .vram = bus.memory, // code uses 8000-9FFF for VRAM
         .framebuffer = {0}, // Initialize framebuffer to 0
     };
-
-    for (int i = 0xFF04; i <= 0xFF07; i++) {
-        bus.memory[i] = 0; // Initialize timer registers to 0
-    }
-
     // Initialize Timer
     struct Timer timer = {
-        .main_clock = CLOCK_SPEED/4096, // Main clock
-        .sub_clock = 0,  // Sub clock
-        .divider_cycles = 0 // Cycles for divider increment
+        .tima_cycles = CLOCK_SPEED/4096, // Main clock
+        .div_cycles = 0 // Cycles for divider increment
     };
 
     // Load a ROM or set up initial state
     // ...
-    if (load_rom(&cpu, "testing/cpu_instrs/individual/11-op a,(hl).gb") != 0) {
+    if (load_rom(&cpu, "testing/ppu/1-lcd_sync.gb") != 0) {
         return -1; // Exit if ROM loading fails
     }
     printf("ROM loaded successfully.\n");
+
+    FILE *log_file = fopen("testing/test.log", "w");
 
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
@@ -89,14 +86,17 @@ int main() {
     bool running = true;
     SDL_Event event;
 
-    uint32_t palette[4] = {
-        0xFFFFFFFF,  // White
-        0xAAAAAAFF,  // Light gray
-        0x555555FF,  // Dark gray
-        0x000000FF   // Black
-    };
     uint32_t *sdl_pixels = (uint32_t *)malloc(160 * 144 * sizeof(uint32_t));
-
+    uint32_t pallete[8] = {
+        0xFFFFFFFF, // White
+        0xFF555555, // Dark Gray
+        0xFFAAAAAA, // Light Gray
+        0xFF000000, // Black
+        0xFFFFFFFF, // White
+        0xFFAAAAAA, // Light Gray
+        0xFF555555, // Dark Gray
+        0xFF000000, // Black
+    };
     // Main emulation loop
     while (running) {
         while (SDL_PollEvent(&event)) {
@@ -104,13 +104,34 @@ int main() {
                 running = false;
             }
         }
+
+        fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X\n",
+                cpu.regs.a, PACK_FLAGS(&cpu), cpu.regs.b, cpu.regs.c, cpu.regs.d,
+                cpu.regs.e, GET_H(&cpu), GET_L(&cpu), cpu.sp, cpu.pc,
+                cpu.bus.memory[cpu.pc], cpu.bus.memory[cpu.pc + 1],
+                cpu.bus.memory[cpu.pc + 2], cpu.bus.memory[cpu.pc + 3]);
+        fflush(log_file);
         step_cpu(&cpu); // Step the CPU
+        step_timer(&timer, &cpu);  // Step the timer
 
         // Render graphics
         step_gpu(&gpu, cpu.cycles); // Step the GPU with 4 cycles (example)
-        step_timer(&timer, &cpu); // Step the timer
 
 
+        if (gpu.should_render) {
+
+            // Convert framebuffer to SDL pixel format
+            for (int y = 0; y < 144; y++) {
+                for (int x = 0; x < 160; x++) {
+                    sdl_pixels[y * 160 + x] = pallete[gpu.framebuffer[y * 160 + x]];
+                }
+            }
+            SDL_UpdateTexture(texture, NULL, sdl_pixels, 160 * sizeof(uint32_t));
+            SDL_RenderClear(renderer);
+            SDL_RenderCopy(renderer, texture, NULL, NULL);
+            SDL_RenderPresent(renderer);
+            gpu.should_render = false; // Reset render flag
+        }
 
         // Update texture and render
         // Update display
