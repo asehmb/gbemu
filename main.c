@@ -46,7 +46,7 @@ int main() {
 
     // Load a ROM or set up initial state
     // ...
-    if (load_rom(&cpu, "testing/ppu/1-lcd_sync.gb") != 0) {
+    if (load_rom(&cpu, "testing/dmg-acid2.gb") != 0) {
         return -1; // Exit if ROM loading fails
     }
     printf("ROM loaded successfully.\n");
@@ -103,6 +103,70 @@ int main() {
             if (event.type == SDL_QUIT) {
                 running = false;
             }
+            uint8_t directional_keys = 0x0F; // bits 0-3, 1=not pressed
+            uint8_t action_keys = 0x0F;      // bits 0-3, 1=not pressed
+
+            if (event.type == SDL_KEYDOWN) {
+                uint8_t old_joypad = cpu.bus.memory[INPUT_JOYPAD];
+
+                switch (event.key.keysym.sym) {
+                    case SDLK_UP:     directional_keys &= ~(1 << 2); break; // Up
+                    case SDLK_DOWN:   directional_keys &= ~(1 << 3); break; // Down
+                    case SDLK_LEFT:   directional_keys &= ~(1 << 1); break; // Left
+                    case SDLK_RIGHT:  directional_keys &= ~(1 << 0); break; // Right
+                    case SDLK_a:      action_keys &= ~(1 << 0); break;      // A
+                    case SDLK_b:      action_keys &= ~(1 << 1); break;      // B
+                    case SDLK_RETURN: action_keys &= ~(1 << 3); break;      // Start
+                    case SDLK_SPACE:  action_keys &= ~(1 << 2); break;      // Select
+                }
+
+                // Update joypad register based on P14/P15 selection
+                uint8_t joypad = cpu.bus.memory[INPUT_JOYPAD] & 0xF0; // Keep upper bits
+
+                if (!(joypad & (1 << 4))) { // P14 selected (directional)
+                    joypad |= directional_keys;
+                }
+                if (!(joypad & (1 << 5))) { // P15 selected (action)
+                    joypad |= action_keys;
+                }
+
+                cpu.bus.memory[INPUT_JOYPAD] = joypad;
+                // Set interrupt flag if state changed
+                if (old_joypad != joypad) {
+                    cpu.bus.memory[0xFF0F] |= 0x10;
+                }
+            }
+            else if (event.type == SDL_KEYUP) {
+                // Similar logic for key release
+                uint8_t old_joypad = cpu.bus.memory[INPUT_JOYPAD];
+
+                switch (event.key.keysym.sym) {
+                    case SDLK_UP:     directional_keys |= (1 << 2); break;
+                    case SDLK_DOWN:   directional_keys |= (1 << 3); break;
+                    case SDLK_LEFT:   directional_keys |= (1 << 1); break;
+                    case SDLK_RIGHT:  directional_keys |= (1 << 0); break;
+                    case SDLK_a:      action_keys |= (1 << 0); break;
+                    case SDLK_b:      action_keys |= (1 << 1); break;
+                    case SDLK_RETURN: action_keys |= (1 << 3); break;
+                    case SDLK_SPACE:  action_keys |= (1 << 2); break;
+                }
+
+                uint8_t joypad = cpu.bus.memory[INPUT_JOYPAD] & 0xF0;
+
+                if (!(joypad & (1 << 4))) {
+                    joypad |= directional_keys;
+                }
+                if (!(joypad & (1 << 5))) {
+                    joypad |= action_keys;
+                }
+
+                cpu.bus.memory[INPUT_JOYPAD] = joypad;
+
+                if (old_joypad != joypad) {
+                    cpu.bus.memory[0xFF0F] |= 0x10;
+                }
+            }
+
         }
 
         fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X\n",

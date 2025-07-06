@@ -320,25 +320,3 @@ void render_sprites(struct GPU *gpu) {
         }
     }
 }
-
-
-
-void dma_transfer(struct GPU *gpu, uint8_t value) {
-    // DMA transfer source address = value << 8 (e.g., 0xXX00)
-    uint16_t source = value << 8;
-
-    // DMA copies 160 bytes (40 sprites * 4 bytes each)
-    for (int i = 0; i < 160; i++) {
-        uint8_t data = read_vram(gpu, source + i);
-        // Write into OAM byte-wise (4 bytes per sprite)
-        uint8_t sprite_index = i / 4;
-        uint8_t byte_index = i % 4;
-
-        switch (byte_index) {
-            case 0: gpu->oam_entries[sprite_index].y = data; break;
-            case 1: gpu->oam_entries[sprite_index].x = data; break;
-            case 2: gpu->oam_entries[sprite_index].tile_index = data; break;
-            case 3: gpu->oam_entries[sprite_index].flags = data; break;
-        }
-    }
-}

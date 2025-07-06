@@ -3,6 +3,15 @@
 #include <stdint.h>
 #include <stdio.h>
 
+void dma_transfer(struct CPU *cpu, uint8_t value) {
+    uint16_t source = value << 8;
+
+    for (int i = 0; i < 160; i++) {
+        uint8_t data = READ_BYTE(cpu, source + i);
+        cpu->bus.memory[0xFE00 + i] = data;
+    }
+}
+
 
 void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
     cpu->regs.a = 0x01;
@@ -67,16 +76,7 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
 
 
 void step_cpu(struct CPU *cpu) {
-    // Check if IME is pending and set it
-    if (cpu->ime_pending) {
-        cpu->ime = true; // Set IME to true
-        cpu->ime_pending = false; // Clear pending state
-    }
 
-    if (cpu->ime) {
-        cpu_handle_interrupts(cpu);
-
-    }
     cpu->cycles = 4;
     if (cpu->halted) {
         uint8_t if_reg = cpu->bus.memory[0xFF0F];
@@ -91,6 +91,16 @@ void step_cpu(struct CPU *cpu) {
             cpu->cycles = 4;
             return;
     }
+    }
+        // Check if IME is pending and set it
+    if (cpu->ime_pending) {
+        cpu->ime = true; // Set IME to true
+        cpu->ime_pending = false; // Clear pending state
+    }
+
+    if (cpu->ime) {
+        cpu_handle_interrupts(cpu);
+
     }
 
     uint8_t opcode = cpu->bus.memory[cpu->pc++];

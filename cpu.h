@@ -120,11 +120,14 @@ struct CPU {
 #define READ_BYTE(cpu, addr) \
     ((cpu)->bus.memory[(addr)])
 
+void dma_transfer(struct CPU *cpu, uint8_t value); // Ensure proper declaration of dma_transfer
 #define WRITE_BYTE(cpu, addr, value) \
     do { \
         if ((addr) == 0xFF04) { \
             (cpu)->bus.memory[(addr)] = 0; /* Reset DIV register */ \
             (cpu)->divider_cycles = 0; \
+        } else if ((addr) == 0xFF46) { \
+            dma_transfer(cpu, value); /* DMA transfer */ \
         } else { \
             (cpu)->bus.memory[(addr)] = (value); \
         } \
