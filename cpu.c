@@ -31,7 +31,7 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
     cpu->f.subtraction = false;
     cpu->f.half_carry = true;
     cpu->f.carry = true;
-
+    /*
     bus->rom[0xFF05] = 0x00;
     bus->rom[0xFF06] = 0x00;
     bus->rom[0xFF07] = 0x00;
@@ -63,15 +63,16 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
     bus->rom[0xFF4A] = 0x00;
     bus->rom[0xFF4B] = 0x00;
     bus->rom[0xFFFF] = 0x00; // Interrupt Enable Register
+    */
 
 
     cpu->halted = false;
     cpu->ime = false;
     cpu->ime_pending = false; // Initialize IME pending state to false
     cpu->divider_cycles = 0; // Initialize cycles until next interrupt to 0
-    WRITE_BYTE(cpu, 0xFFFF, 0x00); // Initialize IE register to 0
-    WRITE_BYTE(cpu, 0xFF0F, 0x00); // Initialize IF register with some flags set
-    WRITE_BYTE(cpu, 0xFF00, 0x00); // Initialize Joypad register
+    // WRITE_BYTE(cpu, 0xFFFF, 0x00); // Initialize IE register to 0
+    // WRITE_BYTE(cpu, 0xFF0F, 0x00); // Initialize IF register with some flags set
+    // WRITE_BYTE(cpu, 0xFF00, 0x00); // Initialize Joypad register
 }
 
 

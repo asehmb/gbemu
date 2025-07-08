@@ -47,8 +47,11 @@ enum JumpTest {
 };
 
 struct MemoryBus {
-    uint8_t *rom;
-    size_t size;
+    uint8_t rom [0x10000]; // 64KB addressable space
+    size_t rom_size;
+    size_t ram_size; // Size of RAM for MBCs that support it
+    uint8_t current_rom_bank;
+    uint8_t *ram; // RAM for MBCs that support it
 };
 
 struct CPU {

@@ -24,8 +24,8 @@ uint8_t rom_init(struct MemoryBus *bus) {
     }
 }
 
-uint16_t rom_size(struct MemoryBus *bus) {
-    uint8_t bank_type = bus->rom[0x0148];
+uint16_t rom_size(uint8_t *rom) {
+    uint8_t bank_type = rom[0x0148];
     switch (bank_type) {
         case SIZE_32KB:
             return 2;

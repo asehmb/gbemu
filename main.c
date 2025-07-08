@@ -4,6 +4,18 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include "timer.h"
+#include "rom.h"
+#include <stdlib.h>
+#include <string.h>
+
+#define LOGGING
+
+#ifdef LOGGING
+#define LOG(fmt, ...) fprintf(stdout, fmt, ##__VA_ARGS__)
+#else
+#define LOG(fmt, ...) ((void)0)
+#endif
+
 
 int load_rom(struct CPU *cpu, const char *filename) {
     FILE *file = fopen(filename, "rb");
@@ -12,47 +24,95 @@ int load_rom(struct CPU *cpu, const char *filename) {
         return -1;
     }
 
-    // Read the ROM into memory
-    fread(cpu->bus.rom, 1, 32768, file); // Load first 32KB
+    // Read header into temp buffer
+    uint8_t header[0x150];
+    size_t bytes_read = fread(header, 1, sizeof(header), file);
+    if (bytes_read < sizeof(header)) {
+        fprintf(stderr, "Failed to read ROM header\n");
+        fclose(file);
+        return -1;
+    }
+
+    // Copy header into the ROM array
+    memcpy(cpu->bus.rom, header, sizeof(header));
+
+    uint16_t num_banks = rom_size(header);
+    if (num_banks == 0) {
+        fprintf(stderr, "Invalid ROM size\n");
+        fclose(file);
+        return -1;
+    }
+    // read the first 32KB of the ROM MBC_NONE
+    if (fread(cpu->bus.rom + 0x150, 1, 0x8000 - 0x150, file) != 0x8000 - 0x150) {
+        fprintf(stderr, "Failed to read ROM data\n");
+        fclose(file);
+        return -1;
+    }
+    // return if rom is only 32KB
+    if (num_banks == 2) {
+        LOG("ROM size: 32KB\n");
+        return 0;
+    }
+
+    // Load the rest of the rom into RAM (probably should be renamed)
+    cpu->bus.ram = malloc((num_banks - 2) * 0x4000); //when reading from ram account for 0x8000 missing (32KB)
+    if (!cpu->bus.ram) {
+        fprintf(stderr, "Failed to allocate memory for RAM\n");
+        fclose(file);
+        return -1;
+    }
+
+    if (fread(cpu->bus.ram, 1, (num_banks - 2) * 0x4000, file) != (num_banks - 2) * 0x4000) {
+        fprintf(stderr, "Failed to read RAM data\n");
+        free(cpu->bus.ram);
+        fclose(file);
+        return -1;
+    }
+    cpu->bus.rom_size = num_banks * 0x4000; //
+
     fclose(file);
-    cpu->pc = 0x0100;  // Set PC to start of ROM
-    return 0;
+    LOG("ROM loaded successfully. Size: %d banks (%d bytes)\n", num_banks, num_banks * 0x4000);
+    return 0; // for now only do 32KB ROMs
 }
+
+
 
 
 
 int main() {
 
-    struct CPU cpu;
-    uint8_t rom[65536]; // 64KB memory
-    struct MemoryBus bus = {
-        .rom = rom, // Allocate 64KB memory
-        .size = 65536
-    };
-    // Initialize GPU and CPU
+    struct CPU cpu = {0};
+    struct MemoryBus bus; // leave bus uninitialized for now
+    bus.rom_size = 0x8000;
+
+    // Connect bus to CPU
     cpu_init(&cpu, &bus);
 
+    // Now load ROM
+    if (load_rom(&cpu, "testing/dmg-acid2.gb") != 0) {
+        return -1;
+    }
+
+    LOG("CPU and Memory Bus initialized.\n");
+
+    // Initialize GPU
     struct GPU gpu = {
-        .mode = 2,    // OAM Search mode initially
+        .mode = 2,
         .mode_clock = 0,
-        .vram = bus.rom, // code uses 8000-9FFF for VRAM
-        .framebuffer = {0}, // Initialize framebuffer to 0
-    };
-    // Initialize Timer
-    struct Timer timer = {
-        .tima_cycles = CLOCK_SPEED/4096, // Main clock
-        .div_cycles = 0 // Cycles for divider increment
+        .vram = cpu.bus.rom,
+        .framebuffer = {0}
     };
 
-    // Load a ROM or set up initial state
-    // ...
-    if (load_rom(&cpu, "testing/dmg-acid2.gb") != 0) {
-        return -1; // Exit if ROM loading fails
-    }
-    printf("ROM loaded successfully.\n");
+    struct Timer timer = {
+        .div_cycles = 0,
+        .tima_cycles = 0,
+    };
 
     FILE *log_file = fopen("testing/test.log", "w");
-
+    if (!log_file) {
+        perror("Failed to open log file");
+        return -1;
+    }
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         fprintf(stderr, "SDL_Init Error: %s\n", SDL_GetError());

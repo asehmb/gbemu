@@ -11,8 +11,6 @@
 
 struct Timer {
     // REGISTERS
-
-
     // CLOCKS
     uint32_t tima_cycles; // Main clock
     uint32_t div_cycles; // Cycles for divider increment

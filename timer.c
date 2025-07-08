@@ -7,7 +7,7 @@ void step_timer(struct Timer *timer, struct CPU *cpu) {
     timer->div_cycles += cpu->cycles;
     while (timer->div_cycles >= 256) {
         timer->div_cycles -= 256;
-        cpu->bus.memory[0xFF04]++;
+        cpu->bus.rom[0xFF04]++;
     }
 
     // Timer control register

@@ -52,7 +52,7 @@
 #define SIZE_1_5MB 0x54
 
 uint8_t rom_init(struct MemoryBus *bus);
-uint16_t rom_size(struct MemoryBus *bus);
+uint16_t rom_size(uint8_t *rom);
 int ram_size(struct MemoryBus *bus);
 
 
