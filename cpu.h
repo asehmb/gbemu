@@ -52,6 +52,7 @@ struct MemoryBus {
     size_t ram_size; // Size of RAM for MBCs that support it
     uint8_t current_rom_bank;
     uint8_t *ram; // RAM for MBCs that support it
+    bool banking;
 };
 
 struct CPU {
@@ -121,7 +122,9 @@ struct CPU {
 #define INC(x) ((x) + 1)
 #define DEC(x) ((x) - 1)
 #define READ_BYTE(cpu, addr) \
-    ((cpu)->bus.rom[(addr)])
+    (cpu->bus.banking && (addr) >= 0x4000 && (addr) < 0x8000 ? \
+    cpu->bus.ram[((addr-0x4000) + (cpu->bus.current_rom_bank * 0x4000))-0x8000] : \
+    cpu->bus.rom[(addr)]) // Read from RAM if banking is enabled, otherwise read from ROM
 
 void dma_transfer(struct CPU *cpu, uint8_t value); // Ensure proper declaration of dma_transfer
 #define WRITE_BYTE(cpu, addr, value) \

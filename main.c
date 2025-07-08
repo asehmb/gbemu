@@ -51,6 +51,8 @@ int load_rom(struct CPU *cpu, const char *filename) {
     // return if rom is only 32KB
     if (num_banks == 2) {
         LOG("ROM size: 32KB\n");
+        cpu->bus.banking = false;
+
         return 0;
     }
 
@@ -68,7 +70,9 @@ int load_rom(struct CPU *cpu, const char *filename) {
         fclose(file);
         return -1;
     }
-    cpu->bus.rom_size = num_banks * 0x4000; //
+    cpu->bus.rom_size = num_banks * 0x4000;
+    cpu->bus.banking = true; // Enable banking for MBCs that support it
+    cpu->bus.current_rom_bank = 1;
 
     fclose(file);
     LOG("ROM loaded successfully. Size: %d banks (%d bytes)\n", num_banks, num_banks * 0x4000);
