@@ -47,7 +47,7 @@ enum JumpTest {
 };
 
 struct MemoryBus {
-    uint8_t *memory;
+    uint8_t *rom;
     size_t size;
 };
 
@@ -118,18 +118,18 @@ struct CPU {
 #define INC(x) ((x) + 1)
 #define DEC(x) ((x) - 1)
 #define READ_BYTE(cpu, addr) \
-    ((cpu)->bus.memory[(addr)])
+    ((cpu)->bus.rom[(addr)])
 
 void dma_transfer(struct CPU *cpu, uint8_t value); // Ensure proper declaration of dma_transfer
 #define WRITE_BYTE(cpu, addr, value) \
     do { \
         if ((addr) == 0xFF04) { \
-            (cpu)->bus.memory[(addr)] = 0; /* Reset DIV register */ \
+            (cpu)->bus.rom[(addr)] = 0; /* Reset DIV register */ \
             (cpu)->divider_cycles = 0; \
         } else if ((addr) == 0xFF46) { \
             dma_transfer(cpu, value); /* DMA transfer */ \
         } else { \
-            (cpu)->bus.memory[(addr)] = (value); \
+            (cpu)->bus.rom[(addr)] = (value); \
         } \
     } while (0)
 

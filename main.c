@@ -13,7 +13,7 @@ int load_rom(struct CPU *cpu, const char *filename) {
     }
 
     // Read the ROM into memory
-    fread(cpu->bus.memory, 1, 32768, file); // Load first 32KB
+    fread(cpu->bus.rom, 1, 32768, file); // Load first 32KB
     fclose(file);
     cpu->pc = 0x0100;  // Set PC to start of ROM
     return 0;
@@ -24,9 +24,9 @@ int load_rom(struct CPU *cpu, const char *filename) {
 int main() {
 
     struct CPU cpu;
-    uint8_t memory[65536]; // 64KB memory
+    uint8_t rom[65536]; // 64KB memory
     struct MemoryBus bus = {
-        .memory = memory, // Allocate 64KB memory
+        .rom = rom, // Allocate 64KB memory
         .size = 65536
     };
     // Initialize GPU and CPU
@@ -35,7 +35,7 @@ int main() {
     struct GPU gpu = {
         .mode = 2,    // OAM Search mode initially
         .mode_clock = 0,
-        .vram = bus.memory, // code uses 8000-9FFF for VRAM
+        .vram = bus.rom, // code uses 8000-9FFF for VRAM
         .framebuffer = {0}, // Initialize framebuffer to 0
     };
     // Initialize Timer
@@ -107,7 +107,7 @@ int main() {
             uint8_t action_keys = 0x0F;      // bits 0-3, 1=not pressed
 
             if (event.type == SDL_KEYDOWN) {
-                uint8_t old_joypad = cpu.bus.memory[INPUT_JOYPAD];
+                uint8_t old_joypad = cpu.bus.rom[INPUT_JOYPAD];
 
                 switch (event.key.keysym.sym) {
                     case SDLK_UP:     directional_keys &= ~(1 << 2); break; // Up
@@ -121,7 +121,7 @@ int main() {
                 }
 
                 // Update joypad register based on P14/P15 selection
-                uint8_t joypad = cpu.bus.memory[INPUT_JOYPAD] & 0xF0; // Keep upper bits
+                uint8_t joypad = cpu.bus.rom[INPUT_JOYPAD] & 0xF0; // Keep upper bits
 
                 if (!(joypad & (1 << 4))) { // P14 selected (directional)
                     joypad |= directional_keys;
@@ -130,15 +130,15 @@ int main() {
                     joypad |= action_keys;
                 }
 
-                cpu.bus.memory[INPUT_JOYPAD] = joypad;
+                cpu.bus.rom[INPUT_JOYPAD] = joypad;
                 // Set interrupt flag if state changed
                 if (old_joypad != joypad) {
-                    cpu.bus.memory[0xFF0F] |= 0x10;
+                    cpu.bus.rom[0xFF0F] |= 0x10;
                 }
             }
             else if (event.type == SDL_KEYUP) {
                 // Similar logic for key release
-                uint8_t old_joypad = cpu.bus.memory[INPUT_JOYPAD];
+                uint8_t old_joypad = cpu.bus.rom[INPUT_JOYPAD];
 
                 switch (event.key.keysym.sym) {
                     case SDLK_UP:     directional_keys |= (1 << 2); break;
@@ -151,7 +151,7 @@ int main() {
                     case SDLK_SPACE:  action_keys |= (1 << 2); break;
                 }
 
-                uint8_t joypad = cpu.bus.memory[INPUT_JOYPAD] & 0xF0;
+                uint8_t joypad = cpu.bus.rom[INPUT_JOYPAD] & 0xF0;
 
                 if (!(joypad & (1 << 4))) {
                     joypad |= directional_keys;
@@ -160,10 +160,10 @@ int main() {
                     joypad |= action_keys;
                 }
 
-                cpu.bus.memory[INPUT_JOYPAD] = joypad;
+                cpu.bus.rom[INPUT_JOYPAD] = joypad;
 
                 if (old_joypad != joypad) {
-                    cpu.bus.memory[0xFF0F] |= 0x10;
+                    cpu.bus.rom[0xFF0F] |= 0x10;
                 }
             }
 
@@ -172,8 +172,8 @@ int main() {
         fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X\n",
                 cpu.regs.a, PACK_FLAGS(&cpu), cpu.regs.b, cpu.regs.c, cpu.regs.d,
                 cpu.regs.e, GET_H(&cpu), GET_L(&cpu), cpu.sp, cpu.pc,
-                cpu.bus.memory[cpu.pc], cpu.bus.memory[cpu.pc + 1],
-                cpu.bus.memory[cpu.pc + 2], cpu.bus.memory[cpu.pc + 3]);
+                cpu.bus.rom[cpu.pc], cpu.bus.rom[cpu.pc + 1],
+                cpu.bus.rom[cpu.pc + 2], cpu.bus.rom[cpu.pc + 3]);
         fflush(log_file);
         step_cpu(&cpu); // Step the CPU
         step_timer(&timer, &cpu);  // Step the timer

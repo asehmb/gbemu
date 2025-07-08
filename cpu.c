@@ -8,7 +8,7 @@ void dma_transfer(struct CPU *cpu, uint8_t value) {
 
     for (int i = 0; i < 160; i++) {
         uint8_t data = READ_BYTE(cpu, source + i);
-        cpu->bus.memory[0xFE00 + i] = data;
+        cpu->bus.rom[0xFE00 + i] = data;
     }
 }
 
@@ -32,37 +32,37 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
     cpu->f.half_carry = true;
     cpu->f.carry = true;
 
-    bus->memory[0xFF05] = 0x00;
-    bus->memory[0xFF06] = 0x00;
-    bus->memory[0xFF07] = 0x00;
-    bus->memory[0xFF10] = 0x80;
-    bus->memory[0xFF11] = 0xBF;
-    bus->memory[0xFF12] = 0xF3;
-    bus->memory[0xFF14] = 0xBF;
-    bus->memory[0xFF16] = 0x3F;
-    bus->memory[0xFF17] = 0x00;
-    bus->memory[0xFF19] = 0xBF;
-    bus->memory[0xFF1A] = 0x7F;
-    bus->memory[0xFF1B] = 0xFF;
-    bus->memory[0xFF1C] = 0x9F;
-    bus->memory[0xFF1E] = 0xBF;
-    bus->memory[0xFF20] = 0xFF;
-    bus->memory[0xFF21] = 0x00;
-    bus->memory[0xFF22] = 0x00;
-    bus->memory[0xFF23] = 0xBF;
-    bus->memory[0xFF24] = 0x77;
-    bus->memory[0xFF25] = 0xF3;
-    bus->memory[0xFF26] = 0xF1; // Sound on
-    bus->memory[0xFF40] = 0x91; // LCD Control
-    bus->memory[0xFF42] = 0x00;
-    bus->memory[0xFF43] = 0x00;
-    bus->memory[0xFF45] = 0x00;
-    bus->memory[0xFF47] = 0xFC;
-    bus->memory[0xFF48] = 0xFF;
-    bus->memory[0xFF49] = 0xFF;
-    bus->memory[0xFF4A] = 0x00;
-    bus->memory[0xFF4B] = 0x00;
-    bus->memory[0xFFFF] = 0x00; // Interrupt Enable Register
+    bus->rom[0xFF05] = 0x00;
+    bus->rom[0xFF06] = 0x00;
+    bus->rom[0xFF07] = 0x00;
+    bus->rom[0xFF10] = 0x80;
+    bus->rom[0xFF11] = 0xBF;
+    bus->rom[0xFF12] = 0xF3;
+    bus->rom[0xFF14] = 0xBF;
+    bus->rom[0xFF16] = 0x3F;
+    bus->rom[0xFF17] = 0x00;
+    bus->rom[0xFF19] = 0xBF;
+    bus->rom[0xFF1A] = 0x7F;
+    bus->rom[0xFF1B] = 0xFF;
+    bus->rom[0xFF1C] = 0x9F;
+    bus->rom[0xFF1E] = 0xBF;
+    bus->rom[0xFF20] = 0xFF;
+    bus->rom[0xFF21] = 0x00;
+    bus->rom[0xFF22] = 0x00;
+    bus->rom[0xFF23] = 0xBF;
+    bus->rom[0xFF24] = 0x77;
+    bus->rom[0xFF25] = 0xF3;
+    bus->rom[0xFF26] = 0xF1; // Sound on
+    bus->rom[0xFF40] = 0x91; // LCD Control
+    bus->rom[0xFF42] = 0x00;
+    bus->rom[0xFF43] = 0x00;
+    bus->rom[0xFF45] = 0x00;
+    bus->rom[0xFF47] = 0xFC;
+    bus->rom[0xFF48] = 0xFF;
+    bus->rom[0xFF49] = 0xFF;
+    bus->rom[0xFF4A] = 0x00;
+    bus->rom[0xFF4B] = 0x00;
+    bus->rom[0xFFFF] = 0x00; // Interrupt Enable Register
 
 
     cpu->halted = false;
@@ -79,8 +79,8 @@ void step_cpu(struct CPU *cpu) {
 
     cpu->cycles = 4;
     if (cpu->halted) {
-        uint8_t if_reg = cpu->bus.memory[0xFF0F];
-        uint8_t ie_reg = cpu->bus.memory[0xFFFF];
+        uint8_t if_reg = cpu->bus.rom[0xFF0F];
+        uint8_t ie_reg = cpu->bus.rom[0xFFFF];
         if ((if_reg & ie_reg) != 0) {
             cpu->halted = false; // Wake up even if IME is 0
             if (cpu->ime) {
@@ -103,7 +103,7 @@ void step_cpu(struct CPU *cpu) {
 
     }
 
-    uint8_t opcode = cpu->bus.memory[cpu->pc++];
+    uint8_t opcode = cpu->bus.rom[cpu->pc++];
     exec_inst(cpu, opcode);
 
 }
@@ -124,8 +124,8 @@ void cpu_interrupt_jump(struct CPU *cpu, uint16_t vector) {
 void cpu_handle_interrupts(struct CPU *cpu) {
     if (!cpu->ime) return;
 
-    uint8_t interrupt_flags = cpu->bus.memory[0xFF0F];  // Correct: IF register
-    uint8_t interrupt_enable = cpu->bus.memory[0xFFFF]; // Correct: IE register
+    uint8_t interrupt_flags = cpu->bus.rom[0xFF0F];  // Correct: IF register
+    uint8_t interrupt_enable = cpu->bus.rom[0xFFFF]; // Correct: IE register
 
     uint8_t enabled_interrupts = interrupt_flags & interrupt_enable & 0x1F; // Lower 5 bits
 
@@ -2155,7 +2155,7 @@ void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
         case 0x03: reg_ptr = &cpu->regs.e; break;
         case 0x04: reg_ptr = (uint8_t*)(&cpu->regs.hl)+1; is_h = 1; break; // (H)
         case 0x05: reg_ptr = (uint8_t*)(&cpu->regs.hl); is_h = 2; break; // (L)
-        case 0x06: reg_ptr = &cpu->bus.memory[cpu->regs.hl]; break; // (HL)
+        case 0x06: reg_ptr = &cpu->bus.rom[cpu->regs.hl]; break; // (HL)
         case 0x07: reg_ptr = &cpu->regs.a; break;
         case 0x08: reg_ptr = &cpu->regs.b; left = false; break; // B
         case 0x09: reg_ptr = &cpu->regs.c; left = false; break; // C
@@ -2163,7 +2163,7 @@ void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
         case 0x0B: reg_ptr = &cpu->regs.e; left = false; break; // E
         case 0x0C: reg_ptr = (uint8_t*)(&cpu->regs.hl)+1; left = false; is_h = 1; break; // H
         case 0x0D: reg_ptr = (uint8_t*)(&cpu->regs.hl); left = false; is_h = 2; break; // L
-        case 0x0E: reg_ptr = &cpu->bus.memory[cpu->regs.hl]; left = false; break; // (HL)
+        case 0x0E: reg_ptr = &cpu->bus.rom[cpu->regs.hl]; left = false; break; // (HL)
         case 0x0F: reg_ptr = &cpu->regs.a; left = false; break; // RLC A
         default:
             fprintf(stderr, "Unknown CB register: %d\n", reg);

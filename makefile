@@ -18,4 +18,7 @@ timer.o: timer.c timer.h
 .PHONY: clean
 
 clean:
-	rm -f *.o*
+	rm -f *.o
+	rm -f main.out
+	rm -rf *.dSYM
+	rm -f *.pch
