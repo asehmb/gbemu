@@ -57,6 +57,8 @@ struct MemoryBus {
 	bool banking; //internal use
 	bool use_banking; // Use RAM banking for MBCs that support it
 	uint8_t mbc_type;
+	uint8_t num_ram_banks;
+	uint8_t num_rom_banks;
 };
 
 struct CPU {

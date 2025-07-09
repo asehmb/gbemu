@@ -7,17 +7,17 @@ uint8_t rom_init(struct MemoryBus *bus) {
 
     switch (type) {
         case 0x00:
-            return ROM_ONLY;
+            return 0;
         case 0x01: case 0x02: case 0x03:
-            return MBC1;
+            return 1;
         case 0x05: case 0x06:
-            return MBC2;
+            return 2;
         case 0x0F: case 0x10: case 0x11:
         case 0x12: case 0x13:
-            return MBC3;
+            return 3;
         case 0x19: case 0x1A: case 0x1B:
         case 0x1C: case 0x1D: case 0x1E:
-            return MBC5;
+            return 5;
         default:
             return 0x04; // Unknown ROM typeq
 

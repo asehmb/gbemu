@@ -57,16 +57,16 @@ int load_rom(struct CPU *cpu, const char *filename) {
     }
 
     // Load the rest of the rom into RAM (probably should be renamed)
-    cpu->bus.ram = malloc((num_banks - 2) * 0x4000); //when reading from ram account for 0x8000 missing (32KB)
-    if (!cpu->bus.ram) {
+    cpu->bus.rom_banks = malloc((num_banks - 2) * 0x4000); //when reading from ram account for 0x8000 missing (32KB)
+    if (!cpu->bus.rom_banks) {
         fprintf(stderr, "Failed to allocate memory for RAM\n");
         fclose(file);
         return -1;
     }
 
-    if (fread(cpu->bus.ram, 1, (num_banks - 2) * 0x4000, file) != (num_banks - 2) * 0x4000) {
+    if (fread(cpu->bus.rom_banks, 1, (num_banks - 2) * 0x4000, file) != (num_banks - 2) * 0x4000) {
         fprintf(stderr, "Failed to read RAM data\n");
-        free(cpu->bus.ram);
+        free(cpu->bus.rom_banks);
         fclose(file);
         return -1;
     }
@@ -74,11 +74,43 @@ int load_rom(struct CPU *cpu, const char *filename) {
     cpu->bus.banking = true; // Enable banking for MBCs that support it
     cpu->bus.current_rom_bank = 1;
 
+    size_t ram_sizes[] = {
+        0,       // 0x00: no RAM
+        2 * 1024,  // 0x01: 2 KB
+        8 * 1024,  // 0x02: 8 KB
+        32 * 1024, // 0x03: 32 KB
+        128 * 1024,// 0x04: 128 KB
+        64 * 1024  // 0x05: 64 KB
+    };
+
+    uint8_t ram_size_code = header[0x149];
+    size_t cart_ram_size = 0;
+    if (ram_size_code < sizeof(ram_sizes)/sizeof(ram_sizes[0])) {
+        cart_ram_size = ram_sizes[ram_size_code];
+    } else {
+        cart_ram_size = 0; // unknown or no RAM
+    }
+
+    cpu->bus.cart_ram = NULL;
+    cpu->bus.ram_size = cart_ram_size;
+
+    if (cart_ram_size > 0) {
+        cpu->bus.cart_ram = malloc(cart_ram_size);
+        if (!cpu->bus.cart_ram) {
+            fprintf(stderr, "Failed to allocate cartridge RAM\n");
+            // handle error or exit
+        }
+    }
+    LOG("ROM banks: %d, RAM size: %zu bytes\n", num_banks - 2, cart_ram_size);
+    cpu->bus.num_rom_banks = num_banks - 2; // Exclude the first two banks (header and first 32KB)
+
+    cpu->bus.mbc_type = rom_init(&cpu->bus);
+    printf("MBC Type: %d\n", cpu->bus.mbc_type);
+
     fclose(file);
     LOG("ROM loaded successfully. Size: %d banks (%d bytes)\n", num_banks, num_banks * 0x4000);
-    return 0; // for now only do 32KB ROMs
+    return 0;
 }
-
 
 
 
@@ -93,7 +125,7 @@ int main() {
     cpu_init(&cpu, &bus);
 
     // Now load ROM
-    if (load_rom(&cpu, "testing/dmg-acid2.gb") != 0) {
+    if (load_rom(&cpu, "testing/blue.gb") != 0) {
         return -1;
     }
 
