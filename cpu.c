@@ -8,7 +8,7 @@ void dma_transfer(struct CPU *cpu, uint8_t value) {
 
     for (int i = 0; i < 160; i++) {
         uint8_t data = READ_BYTE(cpu, source + i);
-        cpu->bus.rom[0xFE00 + i] = data;
+        cpu->bus.rom[0xFE00 + i] = data; // dont need to use macro here
     }
 }
 
@@ -31,7 +31,7 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
     cpu->f.subtraction = false;
     cpu->f.half_carry = true;
     cpu->f.carry = true;
-    /*
+
     bus->rom[0xFF05] = 0x00;
     bus->rom[0xFF06] = 0x00;
     bus->rom[0xFF07] = 0x00;
@@ -63,7 +63,6 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
     bus->rom[0xFF4A] = 0x00;
     bus->rom[0xFF4B] = 0x00;
     bus->rom[0xFFFF] = 0x00; // Interrupt Enable Register
-    */
 
 
     cpu->halted = false;
@@ -78,11 +77,15 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
 
 void step_cpu(struct CPU *cpu) {
 
+    if (cpu->ime_pending) {
+        cpu->ime = true; // Set IME to true if pending
+        cpu->ime_pending = false; // Clear pending state
+    }
     cpu->cycles = 4;
     if (cpu->halted) {
         uint8_t if_reg = cpu->bus.rom[0xFF0F];
         uint8_t ie_reg = cpu->bus.rom[0xFFFF];
-        if ((if_reg & ie_reg) != 0) {
+        if ((if_reg & ie_reg)) {
             cpu->halted = false; // Wake up even if IME is 0
             if (cpu->ime) {
             // If IME is set, handle interrupts
@@ -92,11 +95,6 @@ void step_cpu(struct CPU *cpu) {
             cpu->cycles = 4;
             return;
     }
-    }
-        // Check if IME is pending and set it
-    if (cpu->ime_pending) {
-        cpu->ime = true; // Set IME to true
-        cpu->ime_pending = false; // Clear pending state
     }
 
     if (cpu->ime) {
@@ -172,7 +170,6 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             cpu->f.zero = (cpu->regs.b == 0);
             cpu->f.half_carry = ((cpu->regs.b - 1) & 0x0F) == 0x0F; // Check half carry
             cpu->f.subtraction = false;
-            cpu->cycles = 8; // INC B takes 8 cycles
             break;
         case 0x05: // DEC B
             cpu->regs.b = DEC(cpu->regs.b);
@@ -670,6 +667,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0x46: // LD B,(HL)
             cpu->regs.b = READ_BYTE(cpu, cpu->regs.hl);
+            cpu->cycles = 8;
             break;
 
         case 0x47: // LD B,A
@@ -740,7 +738,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0x56: // LD D,(HL)
             cpu->regs.d = READ_BYTE(cpu, cpu->regs.hl);
-            // No flags affected
+            cpu->cycles = 8;
             break;
 
         case 0x57: // LD D,A
@@ -817,7 +815,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0x66: // LD H,(HL)
             SET_H(cpu, READ_BYTE(cpu, cpu->regs.hl));
-            // No flags affected
+            cpu->cycles = 8;
             break;
 
         case 0x67: // LD H,A
@@ -856,7 +854,6 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0x6E: // LD L,(HL)
             SET_L(cpu, READ_BYTE(cpu, cpu->regs.hl));
-            // No flags affected
             cpu->cycles = 8;
             break;
 
@@ -1026,6 +1023,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
                 cpu->f.half_carry = ((cpu->regs.a & 0xF) + (value & 0xF)) > 0xF;
                 cpu->f.carry = (result > 0xFF);
                 cpu->regs.a = result & 0xFF;
+                cpu->cycles = 8;
             }
             break;
 
@@ -1121,6 +1119,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
                 cpu->f.half_carry = ((cpu->regs.a & 0xF) + (value & 0xF) + carry) > 0xF;
                 cpu->f.carry = (result > 0xFF);
                 cpu->regs.a = result & 0xFF;
+                cpu->cycles = 8;
             }
             break;
 
@@ -1211,6 +1210,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
                 cpu->f.half_carry = ((cpu->regs.a & 0xF) < (value & 0xF));
                 cpu->f.carry = (cpu->regs.a < value);
                 cpu->regs.a = result & 0xFF;
+                cpu->cycles = 8;
             }
             break;
 
@@ -1305,6 +1305,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
                 cpu->f.half_carry = ((cpu->regs.a & 0xF) < ((value & 0xF) + carry));
                 cpu->f.carry = (cpu->regs.a < (value + carry));
                 cpu->regs.a = result & 0xFF;
+                cpu->cycles = 8;
             }
             break;
 
@@ -1391,6 +1392,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
                 cpu->f.subtraction = false;
                 cpu->f.half_carry = true;
                 cpu->f.carry = false;
+                cpu->cycles = 8;
             }
             break;
 
@@ -1459,6 +1461,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
                 cpu->f.subtraction = false;
                 cpu->f.half_carry = false;
                 cpu->f.carry = false;
+                cpu->cycles = 8;
             }
             break;
 
@@ -1526,6 +1529,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
                 cpu->f.subtraction = false;
                 cpu->f.half_carry = false;
                 cpu->f.carry = false;
+                cpu->cycles = 8;
             }
             break;
 
@@ -1605,6 +1609,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
                 cpu->f.subtraction = true;
                 cpu->f.half_carry = ((cpu->regs.a & 0xF) < (value & 0xF));
                 cpu->f.carry = (cpu->regs.a < value);
+                cpu->cycles = 8;
             }
             break;
 
@@ -1906,7 +1911,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
                 uint8_t offset = READ_BYTE(cpu, cpu->pc);
                 cpu->pc++; // Increment PC by 1 to skip the immediate value
                 WRITE_BYTE(cpu, 0xFF00 + offset, cpu->regs.a);
-                cpu->cycles = 16;
+                cpu->cycles = 12;
             }
             break;
 
@@ -1972,7 +1977,6 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0xE9: // JP (HL)
             cpu->pc = cpu->regs.hl;
-            cpu->cycles = 8;
             break;
 
         case 0xEA: // LD (nn),A
@@ -2035,6 +2039,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0xF2: // LD A,(C)
             cpu->regs.a = READ_BYTE(cpu, 0xFF00 + cpu->regs.c);
+            cpu->cycles = 8;
             break;
 
         case 0xF3: // DI
@@ -2116,7 +2121,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             // Technically an illegal opcode on the Game Boy
             break;
 
-        case 0xFE: // CP n
+        case 0xFE: // CP A n
             {
                 uint8_t value = READ_BYTE(cpu, cpu->pc);
                 cpu->pc++; // Increment PC by 1 to skip the immediate value
@@ -2156,7 +2161,7 @@ void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
         case 0x03: reg_ptr = &cpu->regs.e; break;
         case 0x04: reg_ptr = (uint8_t*)(&cpu->regs.hl)+1; is_h = 1; break; // (H)
         case 0x05: reg_ptr = (uint8_t*)(&cpu->regs.hl); is_h = 2; break; // (L)
-        case 0x06: reg_ptr = &cpu->bus.rom[cpu->regs.hl]; break; // (HL)
+        case 0x06: reg_ptr = &cpu->bus.rom[cpu->regs.hl]; is_h = 3; break; // (HL)
         case 0x07: reg_ptr = &cpu->regs.a; break;
         case 0x08: reg_ptr = &cpu->regs.b; left = false; break; // B
         case 0x09: reg_ptr = &cpu->regs.c; left = false; break; // C
@@ -2164,7 +2169,7 @@ void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
         case 0x0B: reg_ptr = &cpu->regs.e; left = false; break; // E
         case 0x0C: reg_ptr = (uint8_t*)(&cpu->regs.hl)+1; left = false; is_h = 1; break; // H
         case 0x0D: reg_ptr = (uint8_t*)(&cpu->regs.hl); left = false; is_h = 2; break; // L
-        case 0x0E: reg_ptr = &cpu->bus.rom[cpu->regs.hl]; left = false; break; // (HL)
+        case 0x0E: reg_ptr = &cpu->bus.rom[cpu->regs.hl]; is_h = 3; left = false; break; // (HL)
         case 0x0F: reg_ptr = &cpu->regs.a; left = false; break; // RLC A
         default:
             fprintf(stderr, "Unknown CB register: %d\n", reg);
@@ -2438,6 +2443,12 @@ void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
         } else if (is_h == 2) {
             // L was modified, update low byte of hl
             cpu->regs.hl = (cpu->regs.hl & 0xFF00) | (*reg_ptr);
+        } else if (is_h == 3) {
+            if (instruction <= 0x07 && instruction >= 0x04) {
+                cpu->cycles = 16;
+            } else {
+                cpu->cycles = 12;
+            }
         }
     }
     // Update the CPU state after executing the instruction
