@@ -44,7 +44,7 @@ void render_scanline(struct GPU *gpu, int line) {
 void step_gpu(struct GPU *gpu, int cycles) {
     gpu->mode_clock += cycles;
     if (!(LCDC(gpu) & 0x80)) {
-        gpu->mode = 2; // OAM
+        gpu->mode = 0; // OAM
         gpu->mode_clock = 0;
         LY(gpu) = 0; // Reset LY to 0
         STAT(gpu) &= ~0x03; // Clear mode bits
