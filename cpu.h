@@ -55,7 +55,7 @@ struct MemoryBus {
 	uint8_t *rom_banks;
 	uint8_t *cart_ram; // RAM for MBCs that support it
 	bool banking; //internal use
-	bool use_banking; // Use RAM banking for MBCs that support it
+	bool ram_banking_toggle; // Use RAM banking for MBCs that support it
 	uint8_t mbc_type;
 	uint8_t num_ram_banks;
 	uint8_t num_rom_banks;
@@ -144,14 +144,55 @@ void dma_transfer(struct CPU *cpu, uint8_t value); // Ensure proper declaration 
 			/* Echo RAM write also writes to WRAM */                         \
 			(cpu)->bus.rom[addr] = (value);                                  \
 			(cpu)->bus.rom[addr - 0x2000] = (value);                         \
+		} else if (addr >= 0xC000) {                    \
+			/* Write to RAM or I/O registers */                              \
+			(cpu)->bus.rom[addr] = (value);                                  \
 		} else if ((addr) < 0x8000) { /* Don't allow writes to ROM */       \
 			/* Ignore ROM writes */                                         \
 		} else { \
 			switch((cpu->bus.mbc_type)) { \
+				case 3: /* MBC3 */                                         \
+                {                                                          \
+                    if ((addr) < 0x2000) { /* RAM/RTC enable */            \
+                        /* 0x0000-0x1FFF: RAM/RTC Enable (0x0A to enable, any other value to disable) */ \
+                        (cpu)->bus.ram_banking_toggle = (((value) & 0x0F) == 0x0A); \
+                    } else if ((addr) < 0x4000) { /* ROM bank select (0x2000-0x3FFF) */ \
+                        /* Set the ROM bank number (1-127) */              \
+                        uint8_t bank = (value) & 0x7F;                     \
+                        if (bank == 0) bank = 1;                           \
+                        (cpu)->bus.current_rom_bank = bank;                \
+                        /* Ensure we don't exceed available ROM banks */   \
+                        if ((cpu)->bus.current_rom_bank >= (cpu)->bus.num_rom_banks) { \
+                            (cpu)->bus.current_rom_bank %= (cpu)->bus.num_rom_banks; \
+                            if ((cpu)->bus.current_rom_bank == 0) (cpu)->bus.current_rom_bank = 1; \
+                        }                                                  \
+                    } else if ((addr) < 0x6000) { /* RAM bank or RTC register select (0x4000-0x5FFF) */ \
+                        if ((value) <= 0x03) {                             \
+                            /* Select RAM bank (0-3) */                     \
+                            (cpu)->bus.current_ram_bank = (value);          \
+                            /* Ensure RAM bank is valid */                  \
+                            if ((cpu)->bus.ram_size > 0) {                  \
+                                uint8_t num_ram_banks = (cpu)->bus.ram_size / 0x2000; \
+                                if (num_ram_banks > 0) {                    \
+                                    (cpu)->bus.current_ram_bank %= num_ram_banks; \
+                                }                                           \
+                            }                                               \
+                        } else if ((value) >= 0x08 && (value) <= 0x0C) {   \
+                        }                                                  \
+                    } else if ((addr) < 0x8000) { /* RTC latch (0x6000-0x7FFF) */ \
+                        /* Latch RTC data on 0->1 transition */            \
+                        static uint8_t prev_value = 0;                      \
+                        if (prev_value == 0x00 && (value) == 0x01) {       \
+                            /* Update RTC values to current time */         \
+                        }                                                  \
+                        prev_value = (value);                              \
+                    }                                                      \
+                    break;           \
+				} \
 				case 5: /* MBC5 */ \
 				{\
 				if ((addr) < 0x2000) { /* RAM enable */                       \
-					(cpu)->bus.use_banking = (((value) & 0x0F) == 0x0A);             \
+					(cpu)->bus.ram_banking_toggle = (((value) & 0x0F) == 0x0A);             \
 				} else if ((addr) < 0x3000) { /* ROM bank lower 8 bits */           \
 					(cpu)->bus.current_rom_bank = ((cpu)->bus.current_rom_bank & 0x100) | ((value) & 0xFF); \
 				} else if ((addr) < 0x4000) { /* ROM bank bit 8 */                   \
@@ -159,7 +200,7 @@ void dma_transfer(struct CPU *cpu, uint8_t value); // Ensure proper declaration 
 				} else if ((addr) < 0x6000) { /* RAM bank */                         \
 					(cpu)->bus.current_ram_bank = (value) & 0x0F;                    \
 				} else if ((addr) >= 0xA000 && (addr) < 0xC000) {                    \
-					if ((cpu)->bus.use_banking && (cpu)->bus.cart_ram) {                 \
+					if ((cpu)->bus.ram_banking_toggle && (cpu)->bus.cart_ram) {                 \
 						size_t w_offset = ((cpu)->bus.current_ram_bank * 0x2000) + ((addr) - 0xA000); \
 						if (w_offset < (cpu)->bus.ram_size) {                          \
 							(cpu)->bus.cart_ram[w_offset] = (value);                        \

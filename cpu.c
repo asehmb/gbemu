@@ -26,7 +26,6 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
     cpu->pc = 0x0100; // Set PC to the start of the program
     cpu->sp = 0xFFFE; // Initialize stack pointer to 0xFFFE
 
-    cpu->bus = *bus;
     cpu->f.zero = true;
     cpu->f.subtraction = false;
     cpu->f.half_carry = true;
@@ -56,6 +55,7 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
     bus->rom[0xFF40] = 0x91; // LCD Control
     bus->rom[0xFF42] = 0x00;
     bus->rom[0xFF43] = 0x00;
+    bus->rom[0xFF44] = 0x91; // LY Register
     bus->rom[0xFF45] = 0x00;
     bus->rom[0xFF47] = 0xFC;
     bus->rom[0xFF48] = 0xFF;
@@ -63,6 +63,8 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
     bus->rom[0xFF4A] = 0x00;
     bus->rom[0xFF4B] = 0x00;
     bus->rom[0xFFFF] = 0x00; // Interrupt Enable Register
+    cpu->bus = *bus;
+
 
 
     cpu->halted = false;

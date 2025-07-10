@@ -125,7 +125,7 @@ int main() {
     cpu_init(&cpu, &bus);
 
     // Now load ROM
-    if (load_rom(&cpu, "testing/blue.gb") != 0) {
+    if (load_rom(&cpu, "testing/dmg-acid2.gb") != 0) {
         return -1;
     }
 
@@ -193,6 +193,7 @@ int main() {
         0xFF555555, // Dark Gray
         0xFF000000, // Black
     };
+
     // Main emulation loop
     while (running) {
         while (SDL_PollEvent(&event)) {
@@ -265,11 +266,12 @@ int main() {
 
         }
 
-        fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X\n",
+        fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X LY:%d LCDC:%02X, GPU.MODE:%d GPU.CLOCK%d\n",
                 cpu.regs.a, PACK_FLAGS(&cpu), cpu.regs.b, cpu.regs.c, cpu.regs.d,
                 cpu.regs.e, GET_H(&cpu), GET_L(&cpu), cpu.sp, cpu.pc,
                 cpu.bus.rom[cpu.pc], cpu.bus.rom[cpu.pc + 1],
-                cpu.bus.rom[cpu.pc + 2], cpu.bus.rom[cpu.pc + 3]);
+                cpu.bus.rom[cpu.pc + 2], cpu.bus.rom[cpu.pc + 3], cpu.bus.rom[0xFF44], cpu.bus.rom[0xFF40],
+                gpu.mode, gpu.mode_clock);
         fflush(log_file);
         step_cpu(&cpu); // Step the CPU
         step_timer(&timer, &cpu);  // Step the timer
@@ -292,10 +294,8 @@ int main() {
             SDL_RenderPresent(renderer);
             gpu.should_render = false; // Reset render flag
         }
-
-        // Update texture and render
-        // Update display
-        // ...
+        if (cpu.bus.rom[0xFF44])
+            printf("LY: %d, LCDC:0x%02X\n", cpu.bus.rom[0xFF44], cpu.bus.rom[0xFF40]);
     }
 
     free(sdl_pixels);
