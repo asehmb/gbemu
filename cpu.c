@@ -79,10 +79,7 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
 
 void step_cpu(struct CPU *cpu) {
 
-    if (cpu->ime_pending) {
-        cpu->ime = true; // Set IME to true if pending
-        cpu->ime_pending = false; // Clear pending state
-    }
+
     cpu->cycles = 4;
     if (cpu->halted) {
         uint8_t if_reg = cpu->bus.rom[0xFF0F];
@@ -101,10 +98,16 @@ void step_cpu(struct CPU *cpu) {
 
     if (cpu->ime) {
         cpu_handle_interrupts(cpu);
+        // return; // Handle interrupts if IME is set and dont do next instruction immediately
 
     }
+    if (cpu->ime_pending) {
+        cpu->ime = true; // Set IME to true if pending
+        cpu->ime_pending = false; // Clear pending state
+    }
 
-    uint8_t opcode = cpu->bus.rom[cpu->pc++];
+    uint8_t opcode = READ_BYTE(cpu, cpu->pc);
+    cpu->pc++; // Increment PC to point to the next instruction
     exec_inst(cpu, opcode);
 
 }
@@ -381,7 +384,9 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 
         case 0x21: // LD HL,nn
         {
-            uint16_t addr = READ_WORD(cpu, cpu->pc);
+            uint8_t low = READ_BYTE(cpu, cpu->pc);
+            uint8_t high = READ_BYTE(cpu, cpu->pc + 1);
+            uint16_t addr = (high << 8) | low;
             cpu->regs.hl = addr;
             cpu->pc += 2;
             cpu->cycles = 12; // LD HL,nn takes 12 cycles
