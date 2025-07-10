@@ -105,7 +105,7 @@ int load_rom(struct CPU *cpu, const char *filename) {
     cpu->bus.num_rom_banks = num_banks - 2; // Exclude the first two banks (header and first 32KB)
 
     cpu->bus.mbc_type = rom_init(&cpu->bus);
-    printf("MBC Type: %d\n", cpu->bus.mbc_type);
+    LOG("MBC type: %d\n", cpu->bus.mbc_type);
 
     fclose(file);
     LOG("ROM loaded successfully. Size: %d banks (%d bytes)\n", num_banks, num_banks * 0x4000);
@@ -149,6 +149,9 @@ int main() {
         perror("Failed to open log file");
         return -1;
     }
+
+    cpu.bus.mbc_type = rom_init(&cpu.bus);
+    LOG("MBC type: %d\n", cpu.bus.mbc_type);
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         fprintf(stderr, "SDL_Init Error: %s\n", SDL_GetError());
@@ -271,11 +274,23 @@ int main() {
                 cpu.bus.rom[cpu.pc], cpu.bus.rom[cpu.pc + 1],
                 cpu.bus.rom[cpu.pc + 2], cpu.bus.rom[cpu.pc + 3]);
         fflush(log_file);
+        if (cpu.pc == 0x40) {
+            if (cpu.regs.b == 0x03 && cpu.regs.c == 0x05 && cpu.regs.d == 0x08 && cpu.regs.e == 0x13 && GET_H(&cpu) == 0x21 && GET_L(&cpu) == 0x34) {
+                printf("SUCCESS: CPU reached expected state\n");
+            } else if (cpu.regs.b == 0x42 && cpu.regs.c == 0x42 && cpu.regs.d == 0x42 && cpu.regs.e == 0x42 && GET_H(&cpu) == 0x42 && GET_L(&cpu) == 0x42) {
+                printf(" FAILED");
+            }
+        }
+        if (cpu.regs.b == 0x42 && cpu.regs.c == 0x42 && cpu.regs.d == 0x42 && cpu.regs.e == 0x42 && GET_H(&cpu) == 0x42 && GET_L(&cpu) == 0x42) {
+                printf(" FAILED\n");
+        }
+        if (cpu.regs.b == 0x03 && cpu.regs.c == 0x05 && cpu.regs.d == 0x08 && cpu.regs.e == 0x13 && GET_H(&cpu) == 0x21 && GET_L(&cpu) == 0x34) {
+            printf("SUCCESS: CPU reached expected state\n"); }
         step_cpu(&cpu); // Step the CPU
         step_timer(&timer, &cpu);  // Step the timer
 
         // Render graphics
-        step_gpu(&gpu, cpu.cycles); // Step the GPU with 4 cycles (example)
+        step_gpu(&gpu, cpu.cycles);
 
 
         if (gpu.should_render) {
@@ -292,6 +307,8 @@ int main() {
             SDL_RenderPresent(renderer);
             gpu.should_render = false; // Reset render flag
         }
+
+        // printf("LY: %d \n", cpu.bus.rom[0xFF44]);
 
         // Update texture and render
         // Update display

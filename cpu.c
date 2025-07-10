@@ -111,9 +111,10 @@ void step_cpu(struct CPU *cpu) {
 
 void cpu_interrupt_jump(struct CPU *cpu, uint16_t vector) {
     // Push PC onto stack
-    cpu->sp -= 2;
-    WRITE_BYTE(cpu, cpu->sp, cpu->pc & 0xFF);
-    WRITE_BYTE(cpu, cpu->sp + 1, cpu->pc >> 8);
+    cpu->sp--;
+    WRITE_BYTE(cpu, cpu->sp, (cpu->pc >> 8) & 0xFF); // Push high byte
+    cpu->sp--;
+    WRITE_BYTE(cpu, cpu->sp, cpu->pc & 0xFF); // Push low byte
     cpu->pc = vector;
     cpu->ime = false; // Disable IME until EI
     cpu->halted = false; // Resume CPU if halted

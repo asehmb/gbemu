@@ -8,6 +8,9 @@ uint8_t inline read_vram(struct GPU *gpu, uint16_t addr) {
         return 0; // Return 0 for out of bounds access
     }
     if (gpu->mode == 3) return 0xFF;  // Block during rendering
+    // if (gpu->mode == 2 && addr >= 0xFE00 && addr < 0xFEA0) {
+    //     return 0xFF; // Ignore OAM access in OAM Search mode
+    // }
 
     return gpu->vram[addr];
 }
@@ -17,6 +20,10 @@ void inline write_vram(struct GPU *gpu, uint16_t addr, uint8_t value) {
         fprintf(stderr, "VRAM access out of bounds: 0x%04X\n", addr);
         return; // Ignore out of bounds writes
     }
+    if (gpu->mode == 3) return ;  // Block during rendering
+    // if (gpu->mode == 2 && addr >= 0xFE00 && addr < 0xFEA0) {
+    //     return; // Ignore OAM access in OAM Search mode
+    // }
     gpu->vram[addr] = value; // vram is mapped to 0x8000-0x9FFF of the memory bus
 }
 
@@ -43,20 +50,27 @@ void render_scanline(struct GPU *gpu, int line) {
 
 void step_gpu(struct GPU *gpu, int cycles) {
     gpu->mode_clock += cycles;
+
+    // If LCD is disabled, stay in mode 2 (OAM) with LY=0
     if (!(LCDC(gpu) & 0x80)) {
-        gpu->mode = 0; // OAM
+        gpu->mode = 2;
         gpu->mode_clock = 0;
-        LY(gpu) = 0; // Reset LY to 0
+        LY(gpu) = 0;
         STAT(gpu) &= ~0x03; // Clear mode bits
+        gpu->window_line = 0;
+        // turn back on lcd for now
+        gpu->vram[0xFF40] |= 0x80; // LCD Display Enable
         return;
     }
 
+    // Store previous mode for interrupt detection
+    int previous_mode = gpu->mode;
     switch (gpu->mode) {
         case 2: // OAM Search (80 cycles)
             if (gpu->mode_clock >= 80) {
                 gpu->mode_clock -= 80;
                 gpu->mode = 3; // Pixel Transfer
-                // No STAT interrupt for mode 3
+                // No STAT interrupt for mode 3 entry
             }
             break;
 
@@ -64,26 +78,25 @@ void step_gpu(struct GPU *gpu, int cycles) {
             if (gpu->mode_clock >= 172) {
                 gpu->mode_clock -= 172;
                 gpu->mode = 0; // HBlank
-
-                // Trigger HBlank STAT interrupt if enabled
-                if (STAT(gpu) & 0x08) {
-                    REQUEST_INTERRUPT(gpu, 0x02);
-                }
-
                 // Render scanline at the END of pixel transfer
                 render_scanline(gpu, LY(gpu));
+                // HBlank STAT interrupt (only on mode transition)
+                if (previous_mode != 0 && (STAT(gpu) & 0x08)) {
+                    REQUEST_INTERRUPT(gpu, 0x02);
+                }
             }
             break;
 
         case 0: // HBlank (204 cycles)
             if (gpu->mode_clock >= 204) {
                 gpu->mode_clock -= 204;
-                LY(gpu)++;
-                // TODO: try moving to end of step_gpu
+                LY(gpu) += 1;
+
+                // LY=LYC comparison
                 if (LY(gpu) == LYC(gpu)) {
                     STAT(gpu) |= 0x04; // Set coincidence flag
                     if (STAT(gpu) & 0x40) { // LYC interrupt enabled
-                        REQUEST_INTERRUPT(gpu, 0x02); // Request LCD STAT interrupt
+                        REQUEST_INTERRUPT(gpu, 0x02);
                     }
                 } else {
                     STAT(gpu) &= ~0x04; // Clear coincidence flag
@@ -93,16 +106,19 @@ void step_gpu(struct GPU *gpu, int cycles) {
                     // Enter VBlank
                     gpu->mode = 1;
                     gpu->mode_clock = 0;
-                    REQUEST_INTERRUPT(gpu, 0x01); // VBlank interrupt
-
+                    // VBlank interrupt
+                    REQUEST_INTERRUPT(gpu, 0x01);
+                    // VBlank STAT interrupt
                     if (STAT(gpu) & 0x10) {
-                        REQUEST_INTERRUPT(gpu, 0x02); // STAT interrupt
+                        REQUEST_INTERRUPT(gpu, 0x02);
                     }
+
                     gpu->should_render = true;
                 } else {
                     // Back to OAM Search
                     gpu->mode = 2;
-                    if (STAT(gpu) & 0x20) {
+                    // OAM STAT interrupt (only on mode transition)
+                    if (previous_mode != 2 && (STAT(gpu) & 0x20)) {
                         REQUEST_INTERRUPT(gpu, 0x02);
                     }
                 }
@@ -113,8 +129,8 @@ void step_gpu(struct GPU *gpu, int cycles) {
             if (gpu->mode_clock >= 456) {
                 gpu->mode_clock -= 456;
                 LY(gpu)++;
-                // TODO: try moving to end of step_gpu
-                // LY==LYC comparison during VBlank
+
+                // LY=LYC comparison during VBlank
                 if (LY(gpu) == LYC(gpu)) {
                     STAT(gpu) |= 0x04;
                     if (STAT(gpu) & 0x40) {
@@ -127,10 +143,21 @@ void step_gpu(struct GPU *gpu, int cycles) {
                 if (LY(gpu) > 153) {
                     LY(gpu) = 0;
                     gpu->mode = 2; // Back to OAM Search
-                    gpu->window_line = 0; // Reset window line
-                    // Trigger OAM STAT interrupt if enabled
-                    if (STAT(gpu) & 0x20) {
-                        REQUEST_INTERRUPT(gpu, 0x02); // Request LCD STAT interrupt
+                    gpu->window_line = 0;
+
+                    // LY=LYC comparison after reset
+                    if (LY(gpu) == LYC(gpu)) {
+                        STAT(gpu) |= 0x04;
+                        if (STAT(gpu) & 0x40) {
+                            REQUEST_INTERRUPT(gpu, 0x02);
+                        }
+                    } else {
+                        STAT(gpu) &= ~0x04;
+                    }
+
+                    // OAM STAT interrupt (only on mode transition)
+                    if (previous_mode != 2 && (STAT(gpu) & 0x20)) {
+                        REQUEST_INTERRUPT(gpu, 0x02);
                     }
                 }
             }
@@ -161,14 +188,14 @@ void render_tile(struct GPU *gpu) {
     uint8_t scy = SCY(gpu);
     uint8_t wx = WX(gpu) - 7;
     uint8_t wy = WY(gpu);
+    uint8_t bgp = BGP(gpu);  // Get background palette
 
     uint16_t memory_region = (lcdc & 0x10) ? 0x8000 : 0x8800;
     bool use_signed_tiles = (lcdc & 0x10) == 0;
     bool window_rendered_this_line = false;
 
-
     for (int pixel = 0; pixel < SCREEN_WIDTH; pixel++) {
-        bool using_window = window_enabled && (ly >= wy) && (wx <= pixel);
+        bool using_window = window_enabled && (ly >= wy) && (pixel >= wx);
         if (using_window) window_rendered_this_line = true;
 
         tile_data = using_window
@@ -176,37 +203,33 @@ void render_tile(struct GPU *gpu) {
             : ((lcdc & 0x08) ? 0x9C00 : 0x9800); // BG Tile Map
 
         uint16_t tile_addr;
-        uint8_t x_pos = using_window ? (pixel - wx) : (pixel + scx);
-        uint8_t y_pos = using_window ? gpu->window_line : (ly + scy);
-
+        
+        // Fix coordinate calculations to prevent underflow
+        uint8_t x_pos, y_pos;
+        if (using_window) {
+            x_pos = pixel - wx;
+            y_pos = gpu->window_line;
+        } else {
+            x_pos = (pixel + scx) & 0xFF;  // Wrap around properly
+            y_pos = (ly + scy) & 0xFF;     // Wrap around properly
+        }
 
         uint8_t tile_index = read_vram(gpu, tile_data + (y_pos / 8) * 32 + (x_pos / 8));
-        tile_addr = memory_region + (use_signed_tiles ? (int8_t)tile_index + 128 : tile_index)*16;
-        /*
-        pixel# = 1 2 3 4 5 6 7 8
-        data 2 = 1 0 1 0 1 1 1 0
-        data 1 = 0 0 1 1 0 1 0 1
-
-        Pixel 1 colour id: 10
-        Pixel 2 colour id: 00
-        Pixel 3 colour id: 11
-        Pixel 4 colour id: 01
-        Pixel 5 colour id: 10
-        Pixel 6 colour id: 11
-        Pixel 7 colour id: 10
-        Pixel 8 colour id: 01
-        */
+        tile_addr = memory_region + (use_signed_tiles ? (int8_t)tile_index + 128 : tile_index) * 16;
 
         uint8_t line_in_tile = y_pos % 8;
-        uint8_t data2 = read_vram(gpu, tile_addr + line_in_tile * 2);
-        uint8_t data1 = read_vram(gpu, tile_addr + line_in_tile * 2 + 1);
+        uint8_t data1 = read_vram(gpu, tile_addr + line_in_tile * 2);
+        uint8_t data2 = read_vram(gpu, tile_addr + line_in_tile * 2 + 1);
+
         uint8_t bit_index = 7 - (x_pos % 8);
         uint8_t color_index = ((data2 >> bit_index) & 1) << 1 |
                             ((data1 >> bit_index) & 1);
 
-        gpu->framebuffer[ly * SCREEN_WIDTH + pixel] = color_index;
-
+        // Apply background palette
+        uint8_t final_color = (bgp >> (color_index * 2)) & 0x03;
+        gpu->framebuffer[ly * SCREEN_WIDTH + pixel] = final_color;
     }
+    
     if (window_rendered_this_line) {
         gpu->window_line++;
     }
