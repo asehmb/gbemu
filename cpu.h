@@ -5,7 +5,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
-#include "input.h"
 
 
 #define FLAG_ZERO      0x80 // 1000 0000
@@ -128,8 +127,9 @@ struct CPU {
 #define INC(x) ((x) + 1)
 #define DEC(x) ((x) - 1)
 #define READ_BYTE(cpu, addr) \
-    (cpu->bus.banking && (addr) >= 0x4000 && (addr) < 0x8000 ? \
-    cpu->bus.rom_banks[((addr-0x4000) + (cpu->bus.current_rom_bank * 0x4000))] : \
+    ((cpu)->bus.current_rom_bank && (addr) >= 0x4000 && (addr) < 0x8000 ? \
+    (cpu)->bus.current_rom_bank == 1 ? cpu->bus.rom[(addr)] : \
+	(cpu)->bus.rom_banks[((cpu)->bus.current_rom_bank - 2) * 0x4000 + (addr-0x4000)] : \
     cpu->bus.rom[(addr)]) // Read from RAM if banking is enabled, otherwise read from ROM
 
 void dma_transfer(struct CPU *cpu, uint8_t value); // Ensure proper declaration of dma_transfer
@@ -147,8 +147,6 @@ void dma_transfer(struct CPU *cpu, uint8_t value); // Ensure proper declaration 
 		} else if (addr >= 0xC000) {                    \
 			/* Write to RAM or I/O registers */                              \
 			(cpu)->bus.rom[addr] = (value);                                  \
-		} else if ((addr) < 0x8000) { /* Don't allow writes to ROM */       \
-			/* Ignore ROM writes */                                         \
 		} else { \
 			switch((cpu->bus.mbc_type)) { \
 				case 3: /* MBC3 */                                         \

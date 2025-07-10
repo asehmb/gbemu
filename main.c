@@ -7,6 +7,7 @@
 #include "rom.h"
 #include <stdlib.h>
 #include <string.h>
+#include "input.h"
 
 #define LOGGING
 
@@ -15,6 +16,12 @@
 #else
 #define LOG(fmt, ...) ((void)0)
 #endif
+
+#define READ_BYTE_DEBUG(cpu, addr) \
+    (cpu.bus.banking && (addr) >= 0x4000 && (addr) < 0x8000 ? \
+    (cpu).bus.current_rom_bank == 1 ? cpu.bus.rom[(addr)] : \
+	(cpu).bus.rom_banks[((cpu).bus.current_rom_bank - 2) * 0x4000 + (addr-0x4000)] : \
+    cpu.bus.rom[(addr)]) // Read from RAM if banking is enabled, otherwise read from ROM
 
 
 int load_rom(struct CPU *cpu, const char *filename) {
@@ -25,34 +32,17 @@ int load_rom(struct CPU *cpu, const char *filename) {
     }
 
     // Read header into temp buffer
-    uint8_t header[0x150];
-    size_t bytes_read = fread(header, 1, sizeof(header), file);
-    if (bytes_read < sizeof(header)) {
-        fprintf(stderr, "Failed to read ROM header\n");
-        fclose(file);
-        return -1;
-    }
-
-    // Copy header into the ROM array
-    memcpy(cpu->bus.rom, header, sizeof(header));
-
-    uint16_t num_banks = rom_size(header);
-    if (num_banks == 0) {
-        fprintf(stderr, "Invalid ROM size\n");
-        fclose(file);
-        return -1;
-    }
-    // read the first 32KB of the ROM MBC_NONE
-    if (fread(cpu->bus.rom + 0x150, 1, 0x8000 - 0x150, file) != 0x8000 - 0x150) {
+    if (fread(cpu->bus.rom, 0x8000,1, file) != 1) {
         fprintf(stderr, "Failed to read ROM data\n");
         fclose(file);
         return -1;
     }
+    int num_banks = rom_size(cpu->bus.rom); // Number of 16KB ROM banks
     // return if rom is only 32KB
     if (num_banks == 2) {
         LOG("ROM size: 32KB\n");
         cpu->bus.banking = false;
-
+        cpu->bus.current_rom_bank = 0; // just use the first bank
         return 0;
     }
 
@@ -83,10 +73,12 @@ int load_rom(struct CPU *cpu, const char *filename) {
         64 * 1024  // 0x05: 64 KB
     };
 
-    uint8_t ram_size_code = header[0x149];
+    uint8_t ram_size = cpu->bus.rom[0x149]; // RAM size code from header
     size_t cart_ram_size = 0;
-    if (ram_size_code < sizeof(ram_sizes)/sizeof(ram_sizes[0])) {
-        cart_ram_size = ram_sizes[ram_size_code];
+
+
+    if (ram_size < sizeof(ram_sizes)/sizeof(ram_sizes[0])) {
+        cart_ram_size = ram_sizes[ram_size];
     } else {
         cart_ram_size = 0; // unknown or no RAM
     }
@@ -125,7 +117,7 @@ int main() {
     cpu_init(&cpu, &bus);
 
     // Now load ROM
-    if (load_rom(&cpu, "testing/dmg-acid2.gb") != 0) {
+    if (load_rom(&cpu, "testing/blue.gb") != 0) {
         return -1;
     }
 
@@ -193,6 +185,18 @@ int main() {
         0xFF555555, // Dark Gray
         0xFF000000, // Black
     };
+    int i = 0;
+    FILE *memory_dump = fopen("memory_dump.txt", "w");
+    if (!memory_dump) {
+        fprintf(stderr, "Failed to open memory dump file\n");
+        free(sdl_pixels);
+        SDL_DestroyTexture(texture);
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        fclose(log_file);
+        return -1;
+    }
 
     // Main emulation loop
     while (running) {
@@ -266,12 +270,14 @@ int main() {
 
         }
 
-        fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X LY:%d LCDC:%02X, GPU.MODE:%d GPU.CLOCK%d\n",
+        fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X,%02X,%02X CURRENT ROM BANK: %d",
                 cpu.regs.a, PACK_FLAGS(&cpu), cpu.regs.b, cpu.regs.c, cpu.regs.d,
                 cpu.regs.e, GET_H(&cpu), GET_L(&cpu), cpu.sp, cpu.pc,
-                cpu.bus.rom[cpu.pc], cpu.bus.rom[cpu.pc + 1],
-                cpu.bus.rom[cpu.pc + 2], cpu.bus.rom[cpu.pc + 3], cpu.bus.rom[0xFF44], cpu.bus.rom[0xFF40],
-                gpu.mode, gpu.mode_clock);
+                READ_BYTE_DEBUG(cpu, cpu.pc), READ_BYTE_DEBUG(cpu, cpu.pc + 1),
+                READ_BYTE_DEBUG(cpu, cpu.pc + 2), READ_BYTE_DEBUG(cpu, cpu.pc + 3),
+                READ_BYTE_DEBUG(cpu, cpu.pc + 4), READ_BYTE_DEBUG(cpu, cpu.pc + 5),
+                cpu.bus.current_rom_bank);
+        fprintf(log_file, "\n");
         fflush(log_file);
         step_cpu(&cpu); // Step the CPU
         step_timer(&timer, &cpu);  // Step the timer
@@ -294,8 +300,40 @@ int main() {
             SDL_RenderPresent(renderer);
             gpu.should_render = false; // Reset render flag
         }
-        if (cpu.bus.rom[0xFF44])
-            printf("LY: %d, LCDC:0x%02X\n", cpu.bus.rom[0xFF44], cpu.bus.rom[0xFF40]);
+        // if (cpu.bus.rom[0xFF44])
+        //     printf("LY: %d, LCDC:0x%02X\n", cpu.bus.rom[0xFF44], cpu.bus.rom[0xFF40]);
+        if (i == 156932) {
+            // Dump memory to file
+            fprintf(memory_dump, "ROM:\n");
+            for (int j = 0; j < 0xFFFF; j++) {
+                fprintf(memory_dump, "%02X ", cpu.bus.rom[j]);
+                if ((j + 1) % 16 == 0) {
+                    fprintf(memory_dump, "\n");
+                }
+            }
+            fprintf(memory_dump, "\nROM_BANKS:\n");
+            for (int j = 0; j < cpu.bus.num_rom_banks * 0x4000; j++) {
+                fprintf(memory_dump, "%02X ", cpu.bus.rom_banks[j]);
+                if ((j + 1) % 16 == 0) {
+                    fprintf(memory_dump, "\n");
+                }
+            }
+            fprintf(memory_dump, "\nCartridge RAM:\n");
+            if (cpu.bus.cart_ram) {
+                for (int j = 0; j < cpu.bus.ram_size; j++) {
+                    fprintf(memory_dump, "%02X ", cpu.bus.cart_ram[j]);
+                    if ((j + 1) % 16 == 0) {
+                        fprintf(memory_dump, "\n");
+                    }
+                }
+            } else {
+                fprintf(memory_dump, "No cartridge RAM\n");
+            }
+
+            fclose(memory_dump);
+            printf("Memory dump completed.\n");
+        }
+        i++;
     }
 
     free(sdl_pixels);
