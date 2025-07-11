@@ -71,6 +71,7 @@ struct CPU {
 	bool ime_pending; // IME pending state
 	uint8_t cycles; // Number of cycles to execute
 	uint16_t divider_cycles; // Divider cycles for timer
+	uint16_t tima_counter; // Timer counter for TIMA register
 };
 
 /* MACROS FOR QUICK ACCESS */
@@ -250,7 +251,7 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus);
 
 void step_cpu(struct CPU *cpu);
 
-void cpu_handle_interrupts(struct CPU *cpu);
+int cpu_handle_interrupts(struct CPU *cpu);
 
 
 

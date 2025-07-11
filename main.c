@@ -186,7 +186,7 @@ int main() {
         0xFF000000, // Black
     };
     int i = 0;
-    FILE *memory_dump = fopen("memory_dump.txt", "w");
+    FILE *memory_dump = fopen("testing/memory_dump.txt", "w");
     if (!memory_dump) {
         fprintf(stderr, "Failed to open memory dump file\n");
         free(sdl_pixels);
@@ -270,13 +270,14 @@ int main() {
 
         }
 
-        fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X,%02X,%02X CURRENT ROM BANK: %d",
+        fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X,%02X,%02X CURRENT ROM BANK: %d \
+            IME:%d IME_PENDING:%d",
                 cpu.regs.a, PACK_FLAGS(&cpu), cpu.regs.b, cpu.regs.c, cpu.regs.d,
                 cpu.regs.e, GET_H(&cpu), GET_L(&cpu), cpu.sp, cpu.pc,
                 READ_BYTE_DEBUG(cpu, cpu.pc), READ_BYTE_DEBUG(cpu, cpu.pc + 1),
                 READ_BYTE_DEBUG(cpu, cpu.pc + 2), READ_BYTE_DEBUG(cpu, cpu.pc + 3),
                 READ_BYTE_DEBUG(cpu, cpu.pc + 4), READ_BYTE_DEBUG(cpu, cpu.pc + 5),
-                cpu.bus.current_rom_bank);
+                cpu.bus.current_rom_bank, cpu.ime, cpu.ime_pending);
         fprintf(log_file, "\n");
         fflush(log_file);
         step_cpu(&cpu); // Step the CPU

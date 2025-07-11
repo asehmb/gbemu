@@ -4,9 +4,9 @@
 
 void step_timer(struct Timer *timer, struct CPU *cpu) {
     // Update DIV register every 256 cycles (16384 Hz)
-    timer->div_cycles += cpu->cycles;
-    while (timer->div_cycles >= 256) {
-        timer->div_cycles -= 256;
+    cpu->divider_cycles += cpu->cycles;
+    while (cpu->divider_cycles >= 256) {
+        cpu->divider_cycles -= 256;
         cpu->bus.rom[0xFF04]++;
     }
 
@@ -21,19 +21,19 @@ void step_timer(struct Timer *timer, struct CPU *cpu) {
             case 3: freq = 256; break;     // 16384 Hz
         }
 
-        timer->tima_cycles += cpu->cycles;
-        while (timer->tima_cycles >= freq) {
-            timer->tima_cycles -= freq;
+        cpu->tima_counter += cpu->cycles;
+        while (cpu->tima_counter >= freq) {
+            cpu->tima_counter -= freq;
             uint8_t tima = READ_BYTE(cpu, 0xFF05);
             if (tima == 0xFF) {
                 WRITE_BYTE(cpu, 0xFF05, READ_BYTE(cpu, 0xFF06)); // Reload with TMA
-                WRITE_BYTE(cpu, 0xFF0F, READ_BYTE(cpu, 0xFF0F) | 0x04);
+                WRITE_BYTE(cpu, 0xFF0F, READ_BYTE(cpu, 0xFF0F) | 0x04); // interrupt
             } else {
                 WRITE_BYTE(cpu, 0xFF05, tima + 1);
             }
         }
     } else {
         // Reset tima_cycles when timer is disabled
-        timer->tima_cycles = 0;
+        cpu->tima_counter = 0;
     }
 }

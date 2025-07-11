@@ -30,7 +30,7 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
     cpu->f.subtraction = false;
     cpu->f.half_carry = true;
     cpu->f.carry = true;
-
+    bus->rom[0xFF04] = 0xBD;
     bus->rom[0xFF05] = 0x00;
     bus->rom[0xFF06] = 0x00;
     bus->rom[0xFF07] = 0x00;
@@ -57,9 +57,8 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
     bus->rom[0xFF43] = 0x00;
     bus->rom[0xFF44] = 0x91; // LY Register
     bus->rom[0xFF45] = 0x00;
+    bus->rom[0xFF46] = 0xFF;
     bus->rom[0xFF47] = 0xFC;
-    bus->rom[0xFF48] = 0xFF;
-    bus->rom[0xFF49] = 0xFF;
     bus->rom[0xFF4A] = 0x00;
     bus->rom[0xFF4B] = 0x00;
     bus->rom[0xFFFF] = 0x00; // Interrupt Enable Register
@@ -97,9 +96,9 @@ void step_cpu(struct CPU *cpu) {
     }
 
     if (cpu->ime) {
-        cpu_handle_interrupts(cpu);
-        // return; // Handle interrupts if IME is set and dont do next instruction immediately
-
+        if (!cpu_handle_interrupts(cpu)){
+            return;
+        }
     }
     if (cpu->ime_pending) {
         cpu->ime = true; // Set IME to true if pending
@@ -125,8 +124,8 @@ void cpu_interrupt_jump(struct CPU *cpu, uint16_t vector) {
     cpu->cycles += 20; // Interrupt handling takes 20 cycles
 }
 
-void cpu_handle_interrupts(struct CPU *cpu) {
-    if (!cpu->ime) return;
+int cpu_handle_interrupts(struct CPU *cpu) {
+    if (!cpu->ime) return 1;
 
     uint8_t interrupt_flags = cpu->bus.rom[0xFF0F];  // Correct: IF register
     uint8_t interrupt_enable = cpu->bus.rom[0xFFFF]; // Correct: IE register
@@ -148,7 +147,8 @@ void cpu_handle_interrupts(struct CPU *cpu) {
     } else if (enabled_interrupts & 0x10) { // Joypad
         cpu_interrupt_jump(cpu, 0x0060);
         WRITE_BYTE(cpu, 0xFF0F, interrupt_flags & ~0x10); // Clear Joypad flag
-    }
+    } else return 1;
+    return 0; // Interrupt handled successfully
 }
 
 
@@ -1857,7 +1857,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
         case 0xD9: // RETI
             cpu->pc = READ_WORD(cpu, cpu->sp);
             cpu->sp += 2;
-            cpu->ime = true;  // Enable interrupts
+            cpu->ime_pending = true; // Set the interrupt master enable flag
             cpu->cycles = 16;
             break;
 
