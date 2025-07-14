@@ -61,6 +61,7 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
     bus->rom[0xFF47] = 0xFC;
     bus->rom[0xFF4A] = 0x00;
     bus->rom[0xFF4B] = 0x00;
+    bus->rom[0xFF0F] = 0xE1; // Interrupt Flag
     bus->rom[0xFFFF] = 0x00; // Interrupt Enable Register
     cpu->bus = *bus;
 

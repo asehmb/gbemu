@@ -42,15 +42,15 @@ void render_scanline(struct GPU *gpu, int line) {
 
 
 void step_gpu(struct GPU *gpu, int cycles) {
-    gpu->mode_clock += cycles;
     if (!(LCDC(gpu) & 0x80)) {
-        gpu->mode = 2; // OAM
+        gpu->mode = 0; // VBLANK
         gpu->mode_clock = 0;
         // LY(gpu) = 0; // Reset LY to 0
         STAT(gpu) &= ~0x03; // Clear mode bits
         return;
     }
-
+    gpu->mode_clock += cycles;
+    
     switch (gpu->mode) {
         case 2: // OAM Search (80 cycles)
             if (gpu->mode_clock >= 80) {

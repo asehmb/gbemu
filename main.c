@@ -117,7 +117,7 @@ int main() {
     cpu_init(&cpu, &bus);
 
     // Now load ROM
-    if (load_rom(&cpu, "testing/blue.gb") != 0) {
+    if (load_rom(&cpu, "testing/dmg-acid2.gb") != 0) {
         return -1;
     }
 
@@ -125,11 +125,13 @@ int main() {
 
     // Initialize GPU
     struct GPU gpu = {
-        .mode = 2,
+        .mode = 1,
         .mode_clock = 0,
         .vram = cpu.bus.rom,
         .framebuffer = {0}
     };
+    // set mode in stat
+    cpu.bus.rom[0xFF41] = 0x81; // Set mode to OAM search
 
     struct Timer timer = {
         .div_cycles = 0,
@@ -270,14 +272,15 @@ int main() {
 
         }
 
-        fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X,%02X,%02X CURRENT ROM BANK: %d \
-            IME:%d IME_PENDING:%d",
+        fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X,%02X,%02X" \
+            " IE:%02X IF:%02X CURRENT ROM BANK:%d PPU MODE:%d",
                 cpu.regs.a, PACK_FLAGS(&cpu), cpu.regs.b, cpu.regs.c, cpu.regs.d,
                 cpu.regs.e, GET_H(&cpu), GET_L(&cpu), cpu.sp, cpu.pc,
                 READ_BYTE_DEBUG(cpu, cpu.pc), READ_BYTE_DEBUG(cpu, cpu.pc + 1),
                 READ_BYTE_DEBUG(cpu, cpu.pc + 2), READ_BYTE_DEBUG(cpu, cpu.pc + 3),
-                READ_BYTE_DEBUG(cpu, cpu.pc + 4), READ_BYTE_DEBUG(cpu, cpu.pc + 5),
-                cpu.bus.current_rom_bank, cpu.ime, cpu.ime_pending);
+                READ_BYTE_DEBUG(cpu, cpu.pc + 4), READ_BYTE_DEBUG(cpu, cpu.pc + 5)
+                ,cpu.bus.rom[0xFFFF],cpu.bus.rom[0xFF0F], cpu.bus.current_rom_bank, cpu.bus.rom[0xFF41] & 0x03
+            );
         fprintf(log_file, "\n");
         fflush(log_file);
         step_cpu(&cpu); // Step the CPU

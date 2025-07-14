@@ -147,7 +147,11 @@ void dma_transfer(struct CPU *cpu, uint8_t value); // Ensure proper declaration 
 			(cpu)->bus.rom[addr - 0x2000] = (value);                         \
 		} else if (addr >= 0xC000) {                    \
 			/* Write to RAM or I/O registers */                              \
-			(cpu)->bus.rom[addr] = (value);                                  \
+			if ((addr) == 0xFF0F) { /* Interrupt Flag */ \
+				(cpu)->bus.rom[addr] = (value) | 0xE0; /* Only lower 5 bits are used */ \
+			} else { \
+				(cpu)->bus.rom[addr] = (value);                                  \
+			} \
 		} else { \
 			switch((cpu->bus.mbc_type)) { \
 				case 3: /* MBC3 */                                         \
