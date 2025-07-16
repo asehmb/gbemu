@@ -72,6 +72,8 @@ struct CPU {
 	uint8_t cycles; // Number of cycles to execute
 	uint16_t divider_cycles; // Divider cycles for timer
 	uint16_t tima_counter; // Timer counter for TIMA register
+	uint8_t bootrom[256]; // Boot ROM
+	bool bootrom_enabled;
 };
 
 /* MACROS FOR QUICK ACCESS */
@@ -128,7 +130,8 @@ struct CPU {
 #define INC(x) ((x) + 1)
 #define DEC(x) ((x) - 1)
 #define READ_BYTE(cpu, addr) \
-    ((cpu)->bus.current_rom_bank && (addr) >= 0x4000 && (addr) < 0x8000 ? \
+	((cpu->bootrom_enabled && (addr) < 0x0100) ? cpu->bootrom[(addr)] : \
+    (cpu)->bus.current_rom_bank && (addr) >= 0x4000 && (addr) < 0x8000 ? \
     (cpu)->bus.current_rom_bank == 1 ? cpu->bus.rom[(addr)] : \
 	(cpu)->bus.rom_banks[((cpu)->bus.current_rom_bank - 2) * 0x4000 + (addr-0x4000)] : \
     cpu->bus.rom[(addr)]) // Read from RAM if banking is enabled, otherwise read from ROM
@@ -149,6 +152,8 @@ void dma_transfer(struct CPU *cpu, uint8_t value); // Ensure proper declaration 
 			/* Write to RAM or I/O registers */                              \
 			if ((addr) == 0xFF0F) { /* Interrupt Flag */ \
 				(cpu)->bus.rom[addr] = (value) | 0xE0; /* Only lower 5 bits are used */ \
+			} else if ((addr) == 0xFF50) { /* Bootrom */ \
+				cpu->bootrom_enabled = false; /* Any write to 0xFF50 disables the bootrom */ \
 			} else { \
 				(cpu)->bus.rom[addr] = (value);                                  \
 			} \

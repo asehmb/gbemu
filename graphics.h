@@ -76,13 +76,15 @@ struct GPU {
     struct oam_entry oam_entries[40]; // Object Attribute Memory (OAM)
 
     uint8_t mode; // Current mode (0, 1, 2, or 3)
-    int mode_clock; // Mode clock for timing (up to 456 cycles)
+    uint32_t mode_clock; // Mode clock for timing (up to 456 cycles)
 
     uint8_t tile_index; // Current tile index for rendering
 
     bool should_render; // Flag to indicate if rendering should occur
     uint8_t window_line;
-
+    uint32_t off_count;
+    int16_t delay_cycles; // Delay cycles for rendering
+    bool stopped; // Flag to indicate if GPU is stopped
 
 };
 

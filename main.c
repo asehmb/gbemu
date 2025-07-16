@@ -17,11 +17,21 @@
 #define LOG(fmt, ...) ((void)0)
 #endif
 
+#define JOYPAD_A            0x01
+#define JOYPAD_B            0x02
+#define JOYPAD_SELECT       0x04
+#define JOYPAD_START        0x08
+#define JOYPAD_RIGHT        0x10
+#define JOYPAD_LEFT         0x20
+#define JOYPAD_UP           0x40
+#define JOYPAD_DOWN         0x80
+
 #define READ_BYTE_DEBUG(cpu, addr) \
-    (cpu.bus.banking && (addr) >= 0x4000 && (addr) < 0x8000 ? \
-    (cpu).bus.current_rom_bank == 1 ? cpu.bus.rom[(addr)] : \
+    ((cpu).bootrom_enabled && (addr) < 0x0100) ? (cpu).bootrom[(addr)] : \
+    ((cpu).bus.banking && (addr) >= 0x4000 && (addr) < 0x8000 ? \
+    (cpu).bus.current_rom_bank == 1 ? (cpu).bus.rom[(addr)] : \
 	(cpu).bus.rom_banks[((cpu).bus.current_rom_bank - 2) * 0x4000 + (addr-0x4000)] : \
-    cpu.bus.rom[(addr)]) // Read from RAM if banking is enabled, otherwise read from ROM
+    (cpu).bus.rom[(addr)]) // Read from boot ROM, then banked ROM, or ROM
 
 
 int load_rom(struct CPU *cpu, const char *filename) {
@@ -31,7 +41,6 @@ int load_rom(struct CPU *cpu, const char *filename) {
         return -1;
     }
 
-    // Read header into temp buffer
     if (fread(cpu->bus.rom, 0x8000,1, file) != 1) {
         fprintf(stderr, "Failed to read ROM data\n");
         fclose(file);
@@ -104,6 +113,26 @@ int load_rom(struct CPU *cpu, const char *filename) {
     return 0;
 }
 
+int load_bootrom(struct CPU *cpu, const char *filename) {
+    FILE *file = fopen(filename, "rb");
+    if (!file) {
+        perror("Failed to open bootrom file");
+        return -1;
+    }
+
+    // Load 256 bytes into the CPU's bootrom buffer
+    size_t read = fread(cpu->bootrom, 1, 256, file);
+    fclose(file);
+
+    if (read != 256) {
+        fprintf(stderr, "Boot ROM size incorrect (read %zu bytes, expected 256)\n", read);
+        return -1;
+    }
+
+    cpu->bootrom_enabled = true;  // Enable boot ROM overlay
+    cpu->pc = 0x0000;             // Start execution at boot ROM
+    return 0;
+}
 
 
 
@@ -113,11 +142,23 @@ int main() {
     struct MemoryBus bus; // leave bus uninitialized for now
     bus.rom_size = 0x8000;
 
-    // Connect bus to CPU
-    cpu_init(&cpu, &bus);
+    // cpu_init(&cpu, &bus);
+    cpu.bus = bus; // Connect bus to CPU
+    cpu.ime = false;
+    cpu.ime_pending = false;
+    cpu.halted = false;
+    cpu.cycles = 0;
+    cpu.divider_cycles = 0;
+    cpu.tima_counter = 0;
+    cpu.bootrom_enabled = false;
 
-    // Now load ROM
-    if (load_rom(&cpu, "testing/dmg-acid2.gb") != 0) {
+    if (load_bootrom(&cpu, "testing/bootix_dmg.bin") != 0) {
+        fprintf(stderr, "Failed to load boot ROM\n");
+        return -1;
+    }
+
+    // load ROM
+    if (load_rom(&cpu, "testing/blue.gb") != 0) {
         return -1;
     }
 
@@ -128,10 +169,14 @@ int main() {
         .mode = 1,
         .mode_clock = 0,
         .vram = cpu.bus.rom,
-        .framebuffer = {0}
+        .framebuffer = {0},
+        .should_render = false,
+        .off_count = 0,
+        .delay_cycles = 0,
+        .stopped = false,
     };
     // set mode in stat
-    cpu.bus.rom[0xFF41] = 0x81; // Set mode to OAM search
+    cpu.bus.rom[0xFF41] = 0x81; // Set mode to VBlank
 
     struct Timer timer = {
         .div_cycles = 0,
@@ -199,87 +244,88 @@ int main() {
         fclose(log_file);
         return -1;
     }
+    uint8_t prev_joypad = 0x30;
 
     // Main emulation loop
+    // Track button states
+    static uint8_t button_directions = 0x0F;  // All direction buttons released (1=released, 0=pressed)
+    static uint8_t button_actions = 0x0F;     // All action buttons released (1=released, 0=pressed)
+    cpu.bus.rom[0xFF44] = 144;
+    
     while (running) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
                 running = false;
             }
-            uint8_t directional_keys = 0x0F; // bits 0-3, 1=not pressed
-            uint8_t action_keys = 0x0F;      // bits 0-3, 1=not pressed
-
-            if (event.type == SDL_KEYDOWN) {
-                uint8_t old_joypad = cpu.bus.rom[INPUT_JOYPAD];
-
+            if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
+                bool pressed = (event.type == SDL_KEYDOWN);
+                
                 switch (event.key.keysym.sym) {
-                    case SDLK_UP:     directional_keys &= ~(1 << 2); break; // Up
-                    case SDLK_DOWN:   directional_keys &= ~(1 << 3); break; // Down
-                    case SDLK_LEFT:   directional_keys &= ~(1 << 1); break; // Left
-                    case SDLK_RIGHT:  directional_keys &= ~(1 << 0); break; // Right
-                    case SDLK_a:      action_keys &= ~(1 << 0); break;      // A
-                    case SDLK_b:      action_keys &= ~(1 << 1); break;      // B
-                    case SDLK_RETURN: action_keys &= ~(1 << 3); break;      // Start
-                    case SDLK_SPACE:  action_keys &= ~(1 << 2); break;      // Select
+                    // Direction buttons
+                    case SDLK_UP:
+                        button_directions = pressed ? (button_directions & ~0x04) : (button_directions | 0x04);
+                        break;
+                    case SDLK_DOWN:
+                        button_directions = pressed ? (button_directions & ~0x08) : (button_directions | 0x08);
+                        break;
+                    case SDLK_LEFT:
+                        button_directions = pressed ? (button_directions & ~0x02) : (button_directions | 0x02);
+                        break;
+                    case SDLK_RIGHT:
+                        button_directions = pressed ? (button_directions & ~0x01) : (button_directions | 0x01);
+                        break;
+                    
+                    // Action buttons
+                    case SDLK_z:  // Use Z for A button
+                        button_actions = pressed ? (button_actions & ~0x01) : (button_actions | 0x01);
+                        break;
+                    case SDLK_x:  // Use X for B button
+                        button_actions = pressed ? (button_actions & ~0x02) : (button_actions | 0x02);
+                        break;
+                    case SDLK_SPACE:
+                        button_actions = pressed ? (button_actions & ~0x04) : (button_actions | 0x04); // Select
+                        break;
+                    case SDLK_RETURN:
+                        button_actions = pressed ? (button_actions & ~0x08) : (button_actions | 0x08); // Start
+                        break;
                 }
-
-                // Update joypad register based on P14/P15 selection
-                uint8_t joypad = cpu.bus.rom[INPUT_JOYPAD] & 0xF0; // Keep upper bits
-
-                if (!(joypad & (1 << 4))) { // P14 selected (directional)
-                    joypad |= directional_keys;
+                
+                // Update P1 register based on P14/P15 selection lines
+                uint8_t p1 = cpu.bus.rom[INPUT_JOYPAD] & 0xF0;  // Keep top 4 bits (selection)
+                
+                // Apply appropriate button states based on selection
+                if (!(p1 & 0x10)) {  // P14 low (directions selected)
+                    p1 |= button_directions;
                 }
-                if (!(joypad & (1 << 5))) { // P15 selected (action)
-                    joypad |= action_keys;
+                if (!(p1 & 0x20)) {  // P15 low (actions selected)
+                    p1 |= button_actions;
                 }
-
-                cpu.bus.rom[INPUT_JOYPAD] = joypad;
-                // Set interrupt flag if state changed
-                if (old_joypad != joypad) {
-                    cpu.bus.rom[0xFF0F] |= 0x10;
+                
+                // If either selection line is high, return all buttons as released
+                if ((p1 & 0x30) == 0x30) {
+                    p1 |= 0x0F;
+                }
+                
+                // Store result back
+                uint8_t old_input = cpu.bus.rom[INPUT_JOYPAD];
+                cpu.bus.rom[INPUT_JOYPAD] = p1;
+                
+                // Trigger interrupt if any button was pressed (bit changed from 1->0)
+                if ((old_input & 0x0F) != (p1 & 0x0F) && 
+                    ((old_input & 0x0F) > (p1 & 0x0F))) {
+                    cpu.bus.rom[0xFF0F] |= 0x10;  // Request joypad interrupt
                 }
             }
-            else if (event.type == SDL_KEYUP) {
-                // Similar logic for key release
-                uint8_t old_joypad = cpu.bus.rom[INPUT_JOYPAD];
-
-                switch (event.key.keysym.sym) {
-                    case SDLK_UP:     directional_keys |= (1 << 2); break;
-                    case SDLK_DOWN:   directional_keys |= (1 << 3); break;
-                    case SDLK_LEFT:   directional_keys |= (1 << 1); break;
-                    case SDLK_RIGHT:  directional_keys |= (1 << 0); break;
-                    case SDLK_a:      action_keys |= (1 << 0); break;
-                    case SDLK_b:      action_keys |= (1 << 1); break;
-                    case SDLK_RETURN: action_keys |= (1 << 3); break;
-                    case SDLK_SPACE:  action_keys |= (1 << 2); break;
-                }
-
-                uint8_t joypad = cpu.bus.rom[INPUT_JOYPAD] & 0xF0;
-
-                if (!(joypad & (1 << 4))) {
-                    joypad |= directional_keys;
-                }
-                if (!(joypad & (1 << 5))) {
-                    joypad |= action_keys;
-                }
-
-                cpu.bus.rom[INPUT_JOYPAD] = joypad;
-
-                if (old_joypad != joypad) {
-                    cpu.bus.rom[0xFF0F] |= 0x10;
-                }
-            }
-
         }
 
         fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X,%02X,%02X" \
-            " IE:%02X IF:%02X CURRENT ROM BANK:%d PPU MODE:%d",
+            " IE:%02X CURRENT ROM BANK:%d PPU MODE:%d",
                 cpu.regs.a, PACK_FLAGS(&cpu), cpu.regs.b, cpu.regs.c, cpu.regs.d,
                 cpu.regs.e, GET_H(&cpu), GET_L(&cpu), cpu.sp, cpu.pc,
                 READ_BYTE_DEBUG(cpu, cpu.pc), READ_BYTE_DEBUG(cpu, cpu.pc + 1),
                 READ_BYTE_DEBUG(cpu, cpu.pc + 2), READ_BYTE_DEBUG(cpu, cpu.pc + 3),
                 READ_BYTE_DEBUG(cpu, cpu.pc + 4), READ_BYTE_DEBUG(cpu, cpu.pc + 5)
-                ,cpu.bus.rom[0xFFFF],cpu.bus.rom[0xFF0F], cpu.bus.current_rom_bank, cpu.bus.rom[0xFF41] & 0x03
+                ,cpu.bus.rom[0xFFFF], cpu.bus.current_rom_bank+1, cpu.bus.rom[0xFF41] & 0x03
             );
         fprintf(log_file, "\n");
         fflush(log_file);
@@ -288,8 +334,14 @@ int main() {
 
         // Render graphics
         step_gpu(&gpu, cpu.cycles); // Step the GPU with 4 cycles (example)
-
-
+        if (prev_joypad != cpu.bus.rom[INPUT_JOYPAD]) {
+            // Check if this is a meaningful joypad state change
+            uint8_t current_joypad = cpu.bus.rom[INPUT_JOYPAD];
+            if (current_joypad != 0xFF) {
+                LOG("Joypad state changed: %02X\n", current_joypad);
+                prev_joypad = current_joypad;
+            }
+        }
         if (gpu.should_render) {
 
             // Convert framebuffer to SDL pixel format

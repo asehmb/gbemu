@@ -43,11 +43,24 @@ void render_scanline(struct GPU *gpu, int line) {
 
 void step_gpu(struct GPU *gpu, int cycles) {
     if (!(LCDC(gpu) & 0x80)) {
+        gpu->off_count += cycles;
+        if (gpu->off_count >= 456*154) {
+            gpu->off_count -= 456*154;
+            gpu->should_render = true; // Force render if LCD is off
+        }
         gpu->mode = 0; // VBLANK
         gpu->mode_clock = 0;
-        // LY(gpu) = 0; // Reset LY to 0
         STAT(gpu) &= ~0x03; // Clear mode bits
+        gpu->delay_cycles = 72; // Reset delay cycles
+        gpu->stopped = true;
         return;
+    }
+    if(gpu->delay_cycles > 0) { // delay for 72 cycles
+        gpu->delay_cycles -= cycles;
+    } else if (gpu->stopped) { // go straight to mode 3 after delay
+        gpu->stopped = false; // Resume GPU if it was stopped
+        gpu->mode = 3;
+        gpu->mode_clock = 0; // Reset mode clock; needs to do the full 172
     }
     gpu->mode_clock += cycles;
     

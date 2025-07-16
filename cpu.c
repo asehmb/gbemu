@@ -1992,7 +1992,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
                 uint16_t addr = READ_WORD(cpu, cpu->pc);
                 cpu->pc += 2;
                 WRITE_BYTE(cpu, addr, cpu->regs.a);
-                cpu->cycles = 16;
+                cpu->cycles = 12;
             }
             break;
 
