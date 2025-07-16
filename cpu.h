@@ -153,6 +153,9 @@ void dma_transfer(struct CPU *cpu, uint8_t value); // Ensure proper declaration 
 			if ((addr) == 0xFF0F) { /* Interrupt Flag */ \
 				(cpu)->bus.rom[addr] = (value) | 0xE0; /* Only lower 5 bits are used */ \
 			} else if ((addr) == 0xFF50) { /* Bootrom */ \
+				if (cpu->bootrom_enabled) { \
+					printf("Boot ROM disabled by write to 0xFF50 with value 0x%02X\n", value); \
+				} \
 				cpu->bootrom_enabled = false; /* Any write to 0xFF50 disables the bootrom */ \
 			} else { \
 				(cpu)->bus.rom[addr] = (value);                                  \

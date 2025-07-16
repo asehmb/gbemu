@@ -129,14 +129,25 @@ int load_bootrom(struct CPU *cpu, const char *filename) {
         return -1;
     }
 
+    // Check first few bytes of the boot ROM (should be 0x31, 0xFE, 0xFF for DMG boot ROM)
+    printf("Boot ROM first bytes: %02X %02X %02X %02X\n", 
+           cpu->bootrom[0], cpu->bootrom[1], cpu->bootrom[2], cpu->bootrom[3]);
+
     cpu->bootrom_enabled = true;  // Enable boot ROM overlay
     cpu->pc = 0x0000;             // Start execution at boot ROM
+    printf("Boot ROM loaded and enabled\n");
     return 0;
 }
 
 
 
-int main() {
+int main(int argc, char *argv[]) {
+    const char *rom_path = "testing/blue.gb"; // Default ROM
+
+    // Check if a ROM file was specified on the command line
+    if (argc > 1) {
+        rom_path = argv[1];
+    }
 
     struct CPU cpu = {0};
     struct MemoryBus bus; // leave bus uninitialized for now
@@ -150,17 +161,25 @@ int main() {
     cpu.cycles = 0;
     cpu.divider_cycles = 0;
     cpu.tima_counter = 0;
-    cpu.bootrom_enabled = false;
+    // Don't set bootrom_enabled here - it will be set by load_bootrom
 
-    if (load_bootrom(&cpu, "testing/bootix_dmg.bin") != 0) {
+    if (load_bootrom(&cpu, "testing/dmg_boot.bin") != 0) {
         fprintf(stderr, "Failed to load boot ROM\n");
         return -1;
     }
 
-    // load ROM
-    if (load_rom(&cpu, "testing/blue.gb") != 0) {
+    // Load the selected ROM
+    printf("Loading ROM: %s\n", rom_path);
+    if (load_rom(&cpu, rom_path) != 0) {
         return -1;
     }
+    
+    // Debug bootrom status
+    printf("Boot ROM status: %s\n", cpu.bootrom_enabled ? "ENABLED" : "DISABLED");
+    
+    // Check ROM type to handle specific games that might bypass bootrom
+    uint8_t rom_type = cpu.bus.rom[0x0147];
+    printf("ROM type: 0x%02X\n", rom_type);
 
     LOG("CPU and Memory Bus initialized.\n");
 
@@ -319,13 +338,13 @@ int main() {
         }
 
         fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X,%02X,%02X" \
-            " IE:%02X CURRENT ROM BANK:%d PPU MODE:%d",
+            " IE:%02X CURRENT ROM BANK:%d PPU MODE:%d CYCLES TAKEN:%d",
                 cpu.regs.a, PACK_FLAGS(&cpu), cpu.regs.b, cpu.regs.c, cpu.regs.d,
                 cpu.regs.e, GET_H(&cpu), GET_L(&cpu), cpu.sp, cpu.pc,
                 READ_BYTE_DEBUG(cpu, cpu.pc), READ_BYTE_DEBUG(cpu, cpu.pc + 1),
                 READ_BYTE_DEBUG(cpu, cpu.pc + 2), READ_BYTE_DEBUG(cpu, cpu.pc + 3),
                 READ_BYTE_DEBUG(cpu, cpu.pc + 4), READ_BYTE_DEBUG(cpu, cpu.pc + 5)
-                ,cpu.bus.rom[0xFFFF], cpu.bus.current_rom_bank+1, cpu.bus.rom[0xFF41] & 0x03
+                ,cpu.bus.rom[0xFFFF], cpu.bus.current_rom_bank, cpu.bus.rom[0xFF41] & 0x03, cpu.cycles
             );
         fprintf(log_file, "\n");
         fflush(log_file);

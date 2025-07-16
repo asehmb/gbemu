@@ -2,8 +2,15 @@
 # Roms
 *.gb
 
-# Tests
-testing/
+*.gb
+*.sym
+*.s
+*.inc
+linkfile
+# logs are too large for git
+*.log
+# bootroms
+*.bin
 
 # Prerequisites
 *.d

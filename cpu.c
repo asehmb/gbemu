@@ -2156,7 +2156,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 }
 
 void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
-    cpu->cycles = 8;
+    cpu->cycles = 12;
     uint8_t *reg_ptr = NULL;
     bool left = true;
     uint8_t is_h = 0; // 1 if h 2 if L 0 if some other register
@@ -2453,9 +2453,9 @@ void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
             cpu->regs.hl = (cpu->regs.hl & 0xFF00) | (*reg_ptr);
         } else if (is_h == 3) {
             if (instruction <= 0x07 && instruction >= 0x04) {
-                cpu->cycles = 16;
+                cpu->cycles = 20;
             } else {
-                cpu->cycles = 12;
+                cpu->cycles = 16;
             }
         }
     }

@@ -55,13 +55,7 @@ void step_gpu(struct GPU *gpu, int cycles) {
         gpu->stopped = true;
         return;
     }
-    if(gpu->delay_cycles > 0) { // delay for 72 cycles
-        gpu->delay_cycles -= cycles;
-    } else if (gpu->stopped) { // go straight to mode 3 after delay
-        gpu->stopped = false; // Resume GPU if it was stopped
-        gpu->mode = 3;
-        gpu->mode_clock = 0; // Reset mode clock; needs to do the full 172
-    }
+
     gpu->mode_clock += cycles;
     
     switch (gpu->mode) {
