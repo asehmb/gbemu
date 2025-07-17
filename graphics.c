@@ -48,15 +48,21 @@ void step_gpu(struct GPU *gpu, int cycles) {
             gpu->off_count -= 456*154;
             gpu->should_render = true; // Force render if LCD is off
         }
-        gpu->mode = 0; // VBLANK
+        gpu->mode = 3;
         gpu->mode_clock = 0;
         STAT(gpu) &= ~0x03; // Clear mode bits
-        gpu->delay_cycles = 72; // Reset delay cycles
+        gpu->delay_cycles = 80; // Reset delay cycles
+        LY(gpu) = 0; // Reset LY to 0 when LCD is off
         gpu->stopped = true;
+        return;
+    }
+    if (gpu->delay_cycles > 0) {
+        gpu->delay_cycles -= cycles;
         return;
     }
 
     gpu->mode_clock += cycles;
+
     
     switch (gpu->mode) {
         case 2: // OAM Search (80 cycles)
@@ -160,7 +166,7 @@ void step_gpu(struct GPU *gpu, int cycles) {
  */
 void render_tile(struct GPU *gpu) {
     uint8_t lcdc = LCDC(gpu);
-    uint8_t ly = LY(gpu);
+    const uint8_t ly = LY(gpu);
     uint16_t tile_data;
     bool window_enabled = (lcdc & 0x20) != 0;
 

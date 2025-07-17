@@ -139,6 +139,13 @@ int load_bootrom(struct CPU *cpu, const char *filename) {
     return 0;
 }
 
+void patch_checksum(uint8_t *rom) {
+    uint8_t checksum = 0;
+    for (uint16_t addr = 0x0134; addr <= 0x014C; addr++) {
+        checksum = checksum - rom[addr] - 1;
+    }
+    rom[0x014D] = checksum; // Overwrite the checksum byte
+}
 
 
 int main(int argc, char *argv[]) {
@@ -179,6 +186,8 @@ int main(int argc, char *argv[]) {
     LOG("ROM type: 0x%02X\n", rom_type);
 
     LOG("CPU and Memory Bus initialized.\n");
+
+    patch_checksum(cpu.bus.rom); // Patch the checksum after loading the ROM
 
     // Initialize GPU
     struct GPU gpu = {
@@ -333,13 +342,13 @@ int main(int argc, char *argv[]) {
         }
 
         fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X,%02X,%02X" \
-            " IE:%02X CURRENT ROM BANK:%d PPU MODE:%d CYCLES TAKEN:%d",
+            " IE:%02X CURRENT ROM BANK:%d PPU MODE:%d CYCLES TAKEN:%d LY:%02X",
                 cpu.regs.a, PACK_FLAGS(&cpu), cpu.regs.b, cpu.regs.c, cpu.regs.d,
                 cpu.regs.e, GET_H(&cpu), GET_L(&cpu), cpu.sp, cpu.pc,
                 READ_BYTE_DEBUG(cpu, cpu.pc), READ_BYTE_DEBUG(cpu, cpu.pc + 1),
                 READ_BYTE_DEBUG(cpu, cpu.pc + 2), READ_BYTE_DEBUG(cpu, cpu.pc + 3),
                 READ_BYTE_DEBUG(cpu, cpu.pc + 4), READ_BYTE_DEBUG(cpu, cpu.pc + 5)
-                ,cpu.bus.rom[0xFFFF], cpu.bus.current_rom_bank, cpu.bus.rom[0xFF41] & 0x03, cpu.cycles
+                ,cpu.bus.rom[0xFFFF], cpu.bus.current_rom_bank, cpu.bus.rom[0xFF41] & 0x03, cpu.cycles, cpu.bus.rom[0xFF44]
             );
         fprintf(log_file, "\n");
         fflush(log_file);

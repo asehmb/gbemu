@@ -3,6 +3,8 @@
 *.gb
 
 *.gb
+*.sav
+
 *.sym
 *.s
 *.inc
