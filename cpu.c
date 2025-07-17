@@ -30,20 +30,32 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
     cpu->f.subtraction = false;
     cpu->f.half_carry = true;
     cpu->f.carry = true;
-    bus->rom[0xFF04] = 0xBD;
+
+    for (int i = 0xFF00; i <= 0xFFFF; i++) {
+        bus->rom[i] = 0xFF; // Initialize ROM to 0xFF
+    }
+    bus->rom[0xFF00] = 0xCF; // Initialize Joypad register
+    bus->rom[0xFF01] = 0x00; // Initialize Serial Transfer Data
+    bus->rom[0xFF02] = 0x7E; // Initialize Serial Transfer Control
+    bus->rom[0xFF03] = 0xFF; // Initialize Divider Register
+    bus->rom[0xFF04] = 0x18;
     bus->rom[0xFF05] = 0x00;
     bus->rom[0xFF06] = 0x00;
-    bus->rom[0xFF07] = 0x00;
+    bus->rom[0xFF07] = 0xF8;
+    bus->rom[0xFF0F] = 0xE1; // Interrupt Flag
     bus->rom[0xFF10] = 0x80;
     bus->rom[0xFF11] = 0xBF;
     bus->rom[0xFF12] = 0xF3;
+    bus->rom[0xFF13] = 0xFF;
     bus->rom[0xFF14] = 0xBF;
     bus->rom[0xFF16] = 0x3F;
     bus->rom[0xFF17] = 0x00;
+    bus->rom[0xFF18] = 0xFF;
     bus->rom[0xFF19] = 0xBF;
     bus->rom[0xFF1A] = 0x7F;
     bus->rom[0xFF1B] = 0xFF;
     bus->rom[0xFF1C] = 0x9F;
+    bus->rom[0xFF1D] = 0xFF;
     bus->rom[0xFF1E] = 0xBF;
     bus->rom[0xFF20] = 0xFF;
     bus->rom[0xFF21] = 0x00;
@@ -53,6 +65,7 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
     bus->rom[0xFF25] = 0xF3;
     bus->rom[0xFF26] = 0xF1; // Sound on
     bus->rom[0xFF40] = 0x91; // LCD Control
+    bus->rom[0xFF41] = 0x81; // LCD Status
     bus->rom[0xFF42] = 0x00;
     bus->rom[0xFF43] = 0x00;
     bus->rom[0xFF44] = 0x91; // LY Register
@@ -61,7 +74,6 @@ void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
     bus->rom[0xFF47] = 0xFC;
     bus->rom[0xFF4A] = 0x00;
     bus->rom[0xFF4B] = 0x00;
-    bus->rom[0xFF0F] = 0xE1; // Interrupt Flag
     bus->rom[0xFFFF] = 0x00; // Interrupt Enable Register
     cpu->bus = *bus;
 

@@ -154,6 +154,7 @@ int main(int argc, char *argv[]) {
     bus.rom_size = 0x8000;
 
     // cpu_init(&cpu, &bus);
+    /*
     cpu.bus = bus; // Connect bus to CPU
     cpu.ime = false;
     cpu.ime_pending = false;
@@ -161,12 +162,9 @@ int main(int argc, char *argv[]) {
     cpu.cycles = 0;
     cpu.divider_cycles = 0;
     cpu.tima_counter = 0;
-    // Don't set bootrom_enabled here - it will be set by load_bootrom
-
-    if (load_bootrom(&cpu, "testing/dmg_boot.bin") != 0) {
-        fprintf(stderr, "Failed to load boot ROM\n");
-        return -1;
-    }
+    cpu.bus.rom[0xFF00] = 0xCF; // Initialize Joypad register
+    */
+    cpu_init(&cpu, &bus);
 
     // Load the selected ROM
     printf("Loading ROM: %s\n", rom_path);
@@ -175,11 +173,10 @@ int main(int argc, char *argv[]) {
     }
     
     // Debug bootrom status
-    printf("Boot ROM status: %s\n", cpu.bootrom_enabled ? "ENABLED" : "DISABLED");
+    LOG("Boot ROM status: %s\n", cpu.bootrom_enabled ? "ENABLED" : "DISABLED");
     
-    // Check ROM type to handle specific games that might bypass bootrom
     uint8_t rom_type = cpu.bus.rom[0x0147];
-    printf("ROM type: 0x%02X\n", rom_type);
+    LOG("ROM type: 0x%02X\n", rom_type);
 
     LOG("CPU and Memory Bus initialized.\n");
 
@@ -194,8 +191,6 @@ int main(int argc, char *argv[]) {
         .delay_cycles = 0,
         .stopped = false,
     };
-    // set mode in stat
-    cpu.bus.rom[0xFF41] = 0x81; // Set mode to VBlank
 
     struct Timer timer = {
         .div_cycles = 0,
