@@ -254,7 +254,6 @@ int main(int argc, char *argv[]) {
         0xFF555555, // Dark Gray
         0xFF000000, // Black
     };
-    int i = 0;
     FILE *memory_dump = fopen("testing/memory_dump.txt", "w");
     if (!memory_dump) {
         fprintf(stderr, "Failed to open memory dump file\n");
@@ -268,13 +267,26 @@ int main(int argc, char *argv[]) {
     }
     uint8_t prev_joypad = 0x30;
 
+    // Frame counter variables
+    uint32_t frame_count = 0;
+    uint32_t fps_timer = SDL_GetTicks();
+    uint32_t fps = 0;
+    char window_title[256];
+    const int TARGET_FPS = 60;
+    const int FRAME_TIME = 1000 / TARGET_FPS; // in ms
+
     // Main emulation loop
     // Track button states
     static uint8_t button_directions = 0x0F;  // All direction buttons released (1=released, 0=pressed)
     static uint8_t button_actions = 0x0F;     // All action buttons released (1=released, 0=pressed)
     cpu.bus.rom[0xFF44] = 144;
     
+    // Frame timing variables
+    
     while (running) {
+        uint32_t frame_start = SDL_GetTicks();
+        
+        // Process events
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
                 running = false;
@@ -340,22 +352,31 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X,%02X,%02X" \
-        //     " IE:%02X CURRENT ROM BANK:%d PPU MODE:%d CYCLES TAKEN:%d LY:%02X",
-        //         cpu.regs.a, PACK_FLAGS(&cpu), cpu.regs.b, cpu.regs.c, cpu.regs.d,
-        //         cpu.regs.e, GET_H(&cpu), GET_L(&cpu), cpu.sp, cpu.pc,
-        //         READ_BYTE_DEBUG(cpu, cpu.pc), READ_BYTE_DEBUG(cpu, cpu.pc + 1),
-        //         READ_BYTE_DEBUG(cpu, cpu.pc + 2), READ_BYTE_DEBUG(cpu, cpu.pc + 3),
-        //         READ_BYTE_DEBUG(cpu, cpu.pc + 4), READ_BYTE_DEBUG(cpu, cpu.pc + 5)
-        //         ,cpu.bus.rom[0xFFFF], cpu.bus.current_rom_bank, cpu.bus.rom[0xFF41] & 0x03, cpu.cycles, cpu.bus.rom[0xFF44]
-        //     );
-        // fprintf(log_file, "\n");
-        // fflush(log_file);
-        step_cpu(&cpu); // Step the CPU
-        step_timer(&timer, &cpu);  // Step the timer
+        // Run emulation for one frame (approximately 70224 cycles for Game Boy)
+        const int CYCLES_PER_FRAME = 70224;
+        int frame_cycles = 0;
+        
+        while (frame_cycles < CYCLES_PER_FRAME && !gpu.should_render) {
+            // fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X,%02X,%02X" \
+            //     " IE:%02X CURRENT ROM BANK:%d PPU MODE:%d CYCLES TAKEN:%d LY:%02X",
+            //         cpu.regs.a, PACK_FLAGS(&cpu), cpu.regs.b, cpu.regs.c, cpu.regs.d,
+            //         cpu.regs.e, GET_H(&cpu), GET_L(&cpu), cpu.sp, cpu.pc,
+            //         READ_BYTE_DEBUG(cpu, cpu.pc), READ_BYTE_DEBUG(cpu, cpu.pc + 1),
+            //         READ_BYTE_DEBUG(cpu, cpu.pc + 2), READ_BYTE_DEBUG(cpu, cpu.pc + 3),
+            //         READ_BYTE_DEBUG(cpu, cpu.pc + 4), READ_BYTE_DEBUG(cpu, cpu.pc + 5)
+            //         ,cpu.bus.rom[0xFFFF], cpu.bus.current_rom_bank, cpu.bus.rom[0xFF41] & 0x03, cpu.cycles, cpu.bus.rom[0xFF44]
+            //     );
+            // fprintf(log_file, "\n");
+            // fflush(log_file);
+            
+            uint32_t prev_cycles = cpu.cycles;
+            step_cpu(&cpu); // Step the CPU
+            step_timer(&timer, &cpu);  // Step the timer
+            step_gpu(&gpu, cpu.cycles); // Step the GPU
+            
+            frame_cycles += (cpu.cycles - prev_cycles);
+        }
 
-        // Render graphics
-        step_gpu(&gpu, cpu.cycles); // Step the GPU with 4 cycles (example)
         if (prev_joypad != cpu.bus.rom[INPUT_JOYPAD]) {
             // Check if this is a meaningful joypad state change
             uint8_t current_joypad = cpu.bus.rom[INPUT_JOYPAD];
@@ -364,7 +385,18 @@ int main(int argc, char *argv[]) {
                 prev_joypad = current_joypad;
             }
         }
+
+        // Only limit frame rate when we actually render a frame
         if (gpu.should_render) {
+            // Frame timing
+            uint32_t frame_time = SDL_GetTicks() - frame_start;
+            if (frame_time < FRAME_TIME) {
+                SDL_Delay(FRAME_TIME - frame_time);
+            }
+        }
+        
+        if (gpu.should_render) {
+            frame_count++;
 
             // Convert framebuffer to SDL pixel format
             for (int y = 0; y < 144; y++) {
@@ -377,41 +409,21 @@ int main(int argc, char *argv[]) {
             SDL_RenderCopy(renderer, texture, NULL, NULL);
             SDL_RenderPresent(renderer);
             gpu.should_render = false; // Reset render flag
-        }
-        // if (cpu.bus.rom[0xFF44])
-        //     printf("LY: %d, LCDC:0x%02X\n", cpu.bus.rom[0xFF44], cpu.bus.rom[0xFF40]);
-        if (i == 156932) {
-            // Dump memory to file
-            fprintf(memory_dump, "ROM:\n");
-            for (int j = 0; j < 0xFFFF; j++) {
-                fprintf(memory_dump, "%02X ", cpu.bus.rom[j]);
-                if ((j + 1) % 16 == 0) {
-                    fprintf(memory_dump, "\n");
-                }
-            }
-            fprintf(memory_dump, "\nROM_BANKS:\n");
-            for (int j = 0; j < cpu.bus.num_rom_banks * 0x4000; j++) {
-                fprintf(memory_dump, "%02X ", cpu.bus.rom_banks[j]);
-                if ((j + 1) % 16 == 0) {
-                    fprintf(memory_dump, "\n");
-                }
-            }
-            fprintf(memory_dump, "\nCartridge RAM:\n");
-            if (cpu.bus.cart_ram) {
-                for (int j = 0; j < cpu.bus.ram_size; j++) {
-                    fprintf(memory_dump, "%02X ", cpu.bus.cart_ram[j]);
-                    if ((j + 1) % 16 == 0) {
-                        fprintf(memory_dump, "\n");
-                    }
-                }
-            } else {
-                fprintf(memory_dump, "No cartridge RAM\n");
-            }
 
-            fclose(memory_dump);
-            printf("Memory dump completed.\n");
+            // Update FPS counter every second
+            uint32_t current_time = SDL_GetTicks();
+            if (current_time - fps_timer >= 1000) {
+                fps = frame_count;
+                frame_count = 0;
+                fps_timer = current_time;
+                
+                // Update window title with FPS
+                snprintf(window_title, sizeof(window_title), "Game Boy Emulator - FPS: %u", fps);
+                SDL_SetWindowTitle(window, window_title);
+            }
         }
-        i++;
+
+
     }
 
     free(sdl_pixels);

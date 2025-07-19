@@ -1,10 +1,11 @@
 CC=clang
-CFLAGS=-Wall -g
+CFLAGS= -O2 -march=native -flto -DNDEBUG -Wall -pthread
+# CFLAGS=-Wall -g -O0 -DDEBUG
 
 all: main
 
 main: cpu.o graphics.o timer.o rom.o main.c
-	$(CC) $(CFLAGS) -I/opt/homebrew/include/SDL2 -L/opt/homebrew/lib main.c cpu.o graphics.o timer.o rom.o -o main.out -lSDL2 -lSDL2main
+	$(CC) $(CFLAGS) -I/opt/homebrew/include/SDL2 -L/opt/homebrew/lib main.c cpu.o graphics.o timer.o rom.o -o main.out -lSDL2 -lSDL2main -lprofiler
 
 gpu.o: graphics.c graphics.h
 	$(CC) $(CFLAGS) graphics.c graphics.h -c

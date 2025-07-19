@@ -305,16 +305,48 @@ void exec_inst(struct CPU *cpu, uint8_t opcode);
 	@param opcode The CB-prefixed opcode to execute.
 	@return void
 */
-void cpu_interrupt_jump(struct CPU *cpu, uint16_t vector);
+static inline void cpu_interrupt_jump(struct CPU *cpu, uint16_t vector);
 
-void _exec_cb_inst(struct CPU *cpu, uint8_t opcode);
+static inline void _exec_cb_inst(struct CPU *cpu, uint8_t opcode);
 
 void cpu_init(struct CPU *cpu, struct MemoryBus *bus);
 
-void step_cpu(struct CPU *cpu);
-
 int cpu_handle_interrupts(struct CPU *cpu);
 
+static inline void step_cpu(struct CPU *cpu) {
+
+
+    cpu->cycles = 4;
+    if (cpu->halted) {
+        uint8_t if_reg = cpu->bus.rom[0xFF0F];
+        uint8_t ie_reg = cpu->bus.rom[0xFFFF];
+        if ((if_reg & ie_reg)) {
+            cpu->halted = false; // Wake up even if IME is 0
+            if (cpu->ime) {
+            // If IME is set, handle interrupts
+                cpu_handle_interrupts(cpu);
+            }
+        } else {
+            cpu->cycles = 4;
+            return;
+    }
+    }
+
+    if (cpu->ime) {
+        if (!cpu_handle_interrupts(cpu)){
+            return;
+        }
+    }
+    if (cpu->ime_pending) {
+        cpu->ime = true; // Set IME to true if pending
+        cpu->ime_pending = false; // Clear pending state
+    }
+
+    uint8_t opcode = READ_BYTE(cpu, cpu->pc);
+    cpu->pc++; // Increment PC to point to the next instruction
+    exec_inst(cpu, opcode);
+
+}
 
 
 #endif // _CPU_H
