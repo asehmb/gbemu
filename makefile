@@ -1,28 +1,43 @@
-CC=clang
-CFLAGS= -O2 -march=native -flto -DNDEBUG -Wall -pthread
-# CFLAGS=-Wall -g -O0 -DDEBUG
+# Compiler and flags
+CC = clang
+CFLAGS = -O2 -march=native -flto -DNDEBUG -Wall -pthread -I/opt/homebrew/include/SDL2 -I$(SRC_DIR)
+LDFLAGS = -L/opt/homebrew/lib -lSDL2 -lSDL2main -lprofiler
 
-all: main
+# Directories
+SRC_DIR = src
+BUILD_DIR = build
+PLATFORM_DIR = sdl
 
-main: cpu.o graphics.o timer.o rom.o main.c
-	$(CC) $(CFLAGS) -I/opt/homebrew/include/SDL2 -L/opt/homebrew/lib main.c cpu.o graphics.o timer.o rom.o -o main.out -lSDL2 -lSDL2main -lprofiler
+# Source files
+SRC_FILES = $(wildcard $(SRC_DIR)/*.c)
+OBJ_FILES = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(SRC_FILES))
 
-gpu.o: graphics.c graphics.h
-	$(CC) $(CFLAGS) graphics.c graphics.h -c
+# Platform main file
+MAIN_OBJ = $(BUILD_DIR)/main.o
 
-cpu.o: cpu.c cpu.h
-	$(CC) $(CFLAGS) cpu.c cpu.h -c
+# Target binary
+TARGET = $(PLATFORM_DIR)/gbemu
 
-timer.o: timer.c timer.h
-	$(CC) $(CFLAGS) timer.c timer.h -c
+.PHONY: all clean
 
-rom.o: rom.c rom.h
-	$(CC) $(CFLAGS) rom.c rom.h -c
+# Default target
+all: $(TARGET)
 
-.PHONY: clean
+# Final binary
+$(TARGET): $(OBJ_FILES) $(MAIN_OBJ)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
+# Compile src/*.c files
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
+	@mkdir -p $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Compile platform main.c
+$(MAIN_OBJ): $(PLATFORM_DIR)/main.c
+	@mkdir -p $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Clean build artifacts
 clean:
-	rm -f *.o
-	rm -f main.out
-	rm -rf *.dSYM
-	rm -f *.pch
+	rm -rf $(BUILD_DIR)
+	rm -f $(TARGET)

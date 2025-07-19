@@ -13,9 +13,9 @@ void joypad_update(struct CPU *cpu) {
     // Check if any buttons are pressed
     if (joypad_state != 0x0F) {
         // If any button is pressed, clear the interrupt flag
-        cpu->bus.memory[0xFF0F] &= ~0x10; // Clear Joypad interrupt flag
+        cpu->bus.rom[0xFF0F] &= ~0x10; // Clear Joypad interrupt flag
     } else {
         // If no buttons are pressed, set the interrupt flag
-        cpu->bus.memory[0xFF0F] |= 0x10; // Set Joypad interrupt flag
+        cpu->bus.rom[0xFF0F] |= 0x10; // Set Joypad interrupt flag
     }
 }
