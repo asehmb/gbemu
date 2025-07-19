@@ -139,26 +139,28 @@ struct CPU {
 void dma_transfer(struct CPU *cpu, uint8_t value); // Ensure proper declaration of dma_transfer
 #define WRITE_BYTE(cpu, addr, value)                                         \
 	do {                                                                     \
-		if ((addr) == 0xFF04) { /* DIV reset */                              \
-			(cpu)->bus.rom[addr] = 0;                                        \
-			(cpu)->divider_cycles = 0;                                       \
-		} else if ((addr) == 0xFF46) {                                       \
-			dma_transfer(cpu, value);                                        \
-		} else if ((addr) >= 0xE000 && (addr) < 0xFE00) {                    \
+		if ((addr) >= 0xE000 && (addr) < 0xFE00) {              		     \
 			/* Echo RAM write also writes to WRAM */                         \
 			(cpu)->bus.rom[addr] = (value);                                  \
 			(cpu)->bus.rom[addr - 0x2000] = (value);                         \
-		} else if (addr >= 0xC000) {                    \
+		} else if (addr >= 0xC000) {										\
 			/* Write to RAM or I/O registers */                              \
-			if ((addr) == 0xFF0F) { /* Interrupt Flag */ \
+			if (addr < 0xFF00) { \
+				(cpu)->bus.rom[addr] = (value);						          \
+			} else if ((addr) == 0xFF0F) { /* Interrupt Flag */ \
 				(cpu)->bus.rom[addr] = (value) | 0xE0; /* Only lower 5 bits are used */ \
 			} else if ((addr) == 0xFF50) { /* Bootrom */ \
 				if (cpu->bootrom_enabled) { \
 					printf("Boot ROM disabled by write to 0xFF50 with value 0x%02X\n", value); \
 				} \
 				cpu->bootrom_enabled = false; /* Any write to 0xFF50 disables the bootrom */ \
-			} else { \
-				(cpu)->bus.rom[addr] = (value);                                  \
+			} else if ((addr) == 0xFF04) { /* DIV reset */                              \
+				(cpu)->bus.rom[addr] = 0;                                      \
+				(cpu)->divider_cycles = 0;                                     \
+			} else if ((addr) == 0xFF46) { /*DMA transfer*/                    \
+				dma_transfer(cpu, value);                                      \
+			} else {                                                           \
+				(cpu)->bus.rom[addr] = (value);                                \
 			} \
 		} else if ((addr) >= 0xA000 && (addr) < 0xC000) { \
 			/* Write to cartridge RAM if enabled */ \
