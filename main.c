@@ -178,6 +178,11 @@ int main(int argc, char *argv[]) {
     if (load_rom(&cpu, rom_path) != 0) {
         return -1;
     }
+
+    if (load_bootrom(&cpu, "testing/dmg_boot.bin") != 0) {
+        fprintf(stderr, "Failed to load boot ROM\n");
+        return -1;
+    }
     
     // Debug bootrom status
     LOG("Boot ROM status: %s\n", cpu.bootrom_enabled ? "ENABLED" : "DISABLED");
@@ -297,58 +302,46 @@ int main(int argc, char *argv[]) {
                 switch (event.key.keysym.sym) {
                     // Direction buttons
                     case SDLK_UP:
-                        button_directions = pressed ? (button_directions & ~0x04) : (button_directions | 0x04);
+                        pressed ? (button_directions &= ~0x04) : (button_directions |= 0x04);
+                        LOG("Up button %s\n", pressed ? "pressed" : "released");
                         break;
                     case SDLK_DOWN:
-                        button_directions = pressed ? (button_directions & ~0x08) : (button_directions | 0x08);
+                        pressed ? (button_directions &= ~0x08) : (button_directions |= 0x08);
+                        LOG("Down button %s\n", pressed ? "pressed" : "released");
                         break;
                     case SDLK_LEFT:
-                        button_directions = pressed ? (button_directions & ~0x02) : (button_directions | 0x02);
+                        pressed ? (button_directions &= ~0x02) : (button_directions |= 0x02);
+                        LOG("Left button %s\n", pressed ? "pressed" : "released");
                         break;
                     case SDLK_RIGHT:
-                        button_directions = pressed ? (button_directions & ~0x01) : (button_directions | 0x01);
+                        pressed ? (button_directions &= ~0x01) : (button_directions |= 0x01);
+                        LOG("Right button %s\n", pressed ? "pressed" : "released");
                         break;
                     
                     // Action buttons
                     case SDLK_z:  // Use Z for A button
                         button_actions = pressed ? (button_actions & ~0x01) : (button_actions | 0x01);
+                        LOG("A button %s\n", pressed ? "pressed" : "released");
                         break;
                     case SDLK_x:  // Use X for B button
                         button_actions = pressed ? (button_actions & ~0x02) : (button_actions | 0x02);
+                        LOG("B button %s\n", pressed ? "pressed" : "released");
                         break;
                     case SDLK_SPACE:
                         button_actions = pressed ? (button_actions & ~0x04) : (button_actions | 0x04); // Select
+                        LOG("Select button %s\n", pressed ? "pressed" : "released");
                         break;
                     case SDLK_RETURN:
                         button_actions = pressed ? (button_actions & ~0x08) : (button_actions | 0x08); // Start
+                        LOG("Start button %s\n", pressed ? "pressed" : "released");
                         break;
                 }
                 
-                // Update P1 register based on P14/P15 selection lines
-                uint8_t p1 = cpu.bus.rom[INPUT_JOYPAD] & 0xF0;  // Keep top 4 bits (selection)
-                
-                // Apply appropriate button states based on selection
-                if (!(p1 & 0x10)) {  // P14 low (directions selected)
-                    p1 |= button_directions;
-                }
-                if (!(p1 & 0x20)) {  // P15 low (actions selected)
-                    p1 |= button_actions;
-                }
-                
-                // If either selection line is high, return all buttons as released
-                if ((p1 & 0x30) == 0x30) {
-                    p1 |= 0x0F;
-                }
-                
-                // Store result back
-                uint8_t old_input = cpu.bus.rom[INPUT_JOYPAD];
-                cpu.bus.rom[INPUT_JOYPAD] = p1;
-                
-                // Trigger interrupt if any button was pressed (bit changed from 1->0)
-                if ((old_input & 0x0F) != (p1 & 0x0F) && 
-                    ((old_input & 0x0F) > (p1 & 0x0F))) {
-                    cpu.bus.rom[0xFF0F] |= 0x10;  // Request joypad interrupt
-                }
+                // Update joypad state
+                // store in cpu struct
+                cpu.p1_actions = button_actions;
+                cpu.p1_directions = button_directions;
+
             }
         }
 
@@ -357,16 +350,19 @@ int main(int argc, char *argv[]) {
         int frame_cycles = 0;
         
         while (frame_cycles < CYCLES_PER_FRAME && !gpu.should_render) {
-            // fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X,%02X,%02X" \
-            //     " IE:%02X CURRENT ROM BANK:%d PPU MODE:%d CYCLES TAKEN:%d LY:%02X",
+            // fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X"\
+            //     "L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X,%02X,%02X" \
+            //     " IE:%02X CURRENT ROM BANK:%d PPU MODE:%d CYCLES TAKEN:%d"\
+            //     " LY:%02X P1:%02X\n",
             //         cpu.regs.a, PACK_FLAGS(&cpu), cpu.regs.b, cpu.regs.c, cpu.regs.d,
             //         cpu.regs.e, GET_H(&cpu), GET_L(&cpu), cpu.sp, cpu.pc,
             //         READ_BYTE_DEBUG(cpu, cpu.pc), READ_BYTE_DEBUG(cpu, cpu.pc + 1),
             //         READ_BYTE_DEBUG(cpu, cpu.pc + 2), READ_BYTE_DEBUG(cpu, cpu.pc + 3),
             //         READ_BYTE_DEBUG(cpu, cpu.pc + 4), READ_BYTE_DEBUG(cpu, cpu.pc + 5)
-            //         ,cpu.bus.rom[0xFFFF], cpu.bus.current_rom_bank, cpu.bus.rom[0xFF41] & 0x03, cpu.cycles, cpu.bus.rom[0xFF44]
+            //         ,cpu.bus.rom[0xFFFF], cpu.bus.current_rom_bank, 
+            //         cpu.bus.rom[0xFF41] & 0x03, cpu.cycles, cpu.bus.rom[0xFF44],
+            //         cpu.bus.rom[INPUT_JOYPAD]
             //     );
-            // fprintf(log_file, "\n");
             // fflush(log_file);
             
             uint32_t prev_cycles = cpu.cycles;

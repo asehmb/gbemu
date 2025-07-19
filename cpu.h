@@ -74,6 +74,8 @@ struct CPU {
 	uint16_t tima_counter; // Timer counter for TIMA register
 	uint8_t bootrom[256]; // Boot ROM
 	bool bootrom_enabled;
+	uint8_t p1_actions;
+	uint8_t p1_directions;
 };
 
 /* MACROS FOR QUICK ACCESS */
@@ -129,12 +131,19 @@ struct CPU {
 #define SUB(x,y) ((x) - (y))
 #define INC(x) ((x) + 1)
 #define DEC(x) ((x) - 1)
+
+uint8_t read_joypad(struct CPU *cpu);
+
 #define READ_BYTE(cpu, addr) \
-	((cpu->bootrom_enabled && (addr) < 0x0100) ? cpu->bootrom[(addr)] : \
+	((cpu->bootrom_enabled && (addr) < 0x0100) ? \
+		cpu->bootrom[(addr)] : \
     (cpu)->bus.current_rom_bank && (addr) >= 0x4000 && (addr) < 0x8000 ? \
-    (cpu)->bus.current_rom_bank == 1 ? cpu->bus.rom[(addr)] : \
-	(cpu)->bus.rom_banks[((cpu)->bus.current_rom_bank - 2) * 0x4000 + (addr-0x4000)] : \
-    cpu->bus.rom[(addr)]) // Read from RAM if banking is enabled, otherwise read from ROM
+		(cpu)->bus.current_rom_bank == 1 ? \
+			cpu->bus.rom[(addr)] : \
+		(cpu)->bus.rom_banks[((cpu)->bus.current_rom_bank - 2) * 0x4000 + (addr-0x4000)] : \
+    ((addr) == 0xFF00) ? \
+		read_joypad(cpu) : \
+	cpu->bus.rom[(addr)]) // Read from RAM if banking is enabled, otherwise read from ROM
 
 void dma_transfer(struct CPU *cpu, uint8_t value); // Ensure proper declaration of dma_transfer
 #define WRITE_BYTE(cpu, addr, value)                                         \
@@ -144,9 +153,9 @@ void dma_transfer(struct CPU *cpu, uint8_t value); // Ensure proper declaration 
 			(cpu)->bus.rom[addr] = (value);                                  \
 			(cpu)->bus.rom[addr - 0x2000] = (value);                         \
 		} else if (addr >= 0xC000) {										\
-			/* Write to RAM or I/O registers */                              \
+			/* Write to RAM */                              \
 			if (addr < 0xFF00) { \
-				(cpu)->bus.rom[addr] = (value);						          \
+				(cpu)->bus.rom[addr] = (value);\
 			} else if ((addr) == 0xFF0F) { /* Interrupt Flag */ \
 				(cpu)->bus.rom[addr] = (value) | 0xE0; /* Only lower 5 bits are used */ \
 			} else if ((addr) == 0xFF50) { /* Bootrom */ \
@@ -159,6 +168,9 @@ void dma_transfer(struct CPU *cpu, uint8_t value); // Ensure proper declaration 
 				(cpu)->divider_cycles = 0;                                     \
 			} else if ((addr) == 0xFF46) { /*DMA transfer*/                    \
 				dma_transfer(cpu, value);                                      \
+			} else if ((addr) == 0xFF00) { /* P1 register */ \
+				/* Update joypad state */ \
+				cpu->bus.rom[addr] = (cpu->bus.rom[0xFF00] & 0xCF) | (value & 0x30); \
 			} else {                                                           \
 				(cpu)->bus.rom[addr] = (value);                                \
 			} \

@@ -12,6 +12,21 @@ void dma_transfer(struct CPU *cpu, uint8_t value) {
     }
 }
 
+uint8_t read_joypad(struct CPU *cpu) {
+    uint8_t p1 = cpu->bus.rom[0xFF00] & 0x30; // bits 4 and 5
+
+    // Start with all buttons unpressed (bits 0–3 high)
+    uint8_t result = p1 | 0x0F;
+
+    if (!(p1 & 0x10)) { // P14 low → directions selected
+        result &= (0xF0 | cpu->p1_directions); // bits 0–3 updated
+    }
+    if (!(p1 & 0x20)) { // P15 low → actions selected
+        result &= (0xF0 | cpu->p1_actions);
+    }
+
+    return result;
+}
 
 void cpu_init(struct CPU *cpu, struct MemoryBus *bus) {
     cpu->regs.a = 0x01;
