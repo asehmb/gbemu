@@ -1,6 +1,7 @@
 #include "graphics.h"
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 uint8_t inline read_vram(struct GPU *gpu, uint16_t addr) {
     if (addr < VRAM_BEGIN || addr > VRAM_END) {
@@ -120,8 +121,12 @@ typedef struct {
 int sprite_cmp(const void *a, const void *b) {
     const SpriteInfo *s1 = (const SpriteInfo *)a;
     const SpriteInfo *s2 = (const SpriteInfo *)b;
-    if (s1->x != s2->x) return s2->x - s1->x;
-    return s2->index - s1->index;
+    // Game Boy sprite priority: lower index = higher priority
+    // If X positions are the same, use index for priority
+    if (s1->x == s2->x) {
+        return s1->index - s2->index; // Lower index first (higher priority)
+    }
+    return s1->x - s2->x; // Draw left-to-right for different X positions
 }
 
 /*
@@ -220,15 +225,18 @@ void render_sprites(struct GPU *gpu) {
             int pixel_x = x_pos + pixel;
             if (pixel_x < 0 || pixel_x >= SCREEN_WIDTH) continue;
 
-            uint8_t bg_pixel = gpu->framebuffer[ly * SCREEN_WIDTH + pixel_x]; // cehck if pixel is already drawn
+            uint8_t bg_pixel = gpu->framebuffer[ly * SCREEN_WIDTH + pixel_x]; // check if pixel is already drawn
 
-            if (priority && bg_pixel != 0) continue; // Behind opaque BG
-            if (bg_pixel >= 0x10) continue; // Already drawn by another sprite
+            // Skip if this is a transparent sprite pixel (color index 0)
+            if (color_index == 0) continue; // Transparent pixel, skip
+            
+            // Apply sprite-to-BG priority (bit 7 of flags)
+            if (priority && bg_pixel != (BGP(gpu) & 0x03)) continue; // Behind non-transparent BG
+            
             uint8_t color_index_with_palette = (obp >> (color_index * 2)) & 0x03; // Get color index from palette
-            if (color_index_with_palette == 0) continue; // Transparent pixel, skip
 
             // Set pixel in framebuffer
-            gpu->framebuffer[ly * SCREEN_WIDTH + pixel_x] = color_index_with_palette; // Offset by 4 for sprites
+            gpu->framebuffer[ly * SCREEN_WIDTH + pixel_x] = color_index_with_palette;
         }
     }
 }
