@@ -157,6 +157,9 @@ static inline uint8_t READ_BYTE(struct CPU *cpu, uint16_t addr) {
 		}
 	}
 	if (0x8000 <= addr && addr < 0xA000) { // VRAM
+		if (cpu->dma_transfer) {
+			return cpu->bus.rom[addr];
+		}
 		if ((cpu->bus.rom[0xFF41] & 0x03) == 0x03) { // blocked in mode 3
 			return 0xFF; // Return dummy value if VRAM is blocked
 		}
@@ -277,14 +280,6 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 				break;
 		}
 	} else if (addr < 0xA000) {
-		/* VRAM */
-		if (cpu->dma_transfer) {
-			cpu->bus.rom[addr] = value;
-			return;
-		}
-		if ((cpu->bus.rom[0xFF41] & 0x03) == 0x03) { // blocked in mode 3
-			return;
-		}
 		cpu->bus.rom[addr] = value; // Write to VRAM
 	} else if (addr < 0xC000) {
 		/* Write to cartridge RAM if enabled */

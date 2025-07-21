@@ -5,6 +5,8 @@
 *.gb
 *.sav
 
+testing/
+
 *.sym
 *.s
 *.inc

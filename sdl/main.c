@@ -121,15 +121,11 @@ int main(int argc, char *argv[]) {
     SDL_Event event;
 
     uint32_t *sdl_pixels = (uint32_t *)malloc(160 * 144 * sizeof(uint32_t));
-    uint32_t pallete[8] = {
-        0xFFFFFFFF, // White
-        0xFF555555, // Dark Gray
-        0xFFAAAAAA, // Light Gray
-        0xFF000000, // Black
+    uint32_t pallete[4] = {
         0xFFFFFFFF, // White
         0xFFAAAAAA, // Light Gray
         0xFF555555, // Dark Gray
-        0xFF000000, // Black
+        0xFF000000 // Black
     };
     FILE *memory_dump = fopen("testing/memory_dump.txt", "w");
     if (!memory_dump) {
