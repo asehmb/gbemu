@@ -189,12 +189,24 @@ void render_sprites(struct GPU *gpu) {
         uint8_t y_size = use8x16_sprites ? 16 : 8; // Sprite height
         uint8_t line_in_sprite = ly - y_pos; // Line in sprite (0-15 for 8x16, 0-7 for 8x8)
         if (y_flip) line_in_sprite = y_size - 1 - line_in_sprite; // Flip Y coordinate
+
+        // For 8x16 sprites, pick tile_index or tile_index+1 depending on line_in_sprite
+        if (use8x16_sprites) {
+            if (line_in_sprite < 8) {
+                // top tile
+                tile_index = tile_index & 0xFE;
+            } else {
+                // bottom tile
+                tile_index = (tile_index & 0xFE) + 1;
+                line_in_sprite -= 8;
+            }
+        }
+
         line_in_sprite *= 2; // Each line has 2 bytes (8 pixels each)
 
         uint16_t tile_addr = 0x8000 + (tile_index * 16) + line_in_sprite;
-        uint8_t data1 = read_vram(gpu, tile_addr);
-        uint8_t data2 = read_vram(gpu, tile_addr + 1);
-
+        uint8_t data1 = read_vram(gpu, tile_addr);     // Low bit plane
+        uint8_t data2 = read_vram(gpu, tile_addr + 1); // High bit plane
         for (int pixel = 0; pixel < 8; pixel++) {
             uint8_t color_index;
             if (x_flip) {

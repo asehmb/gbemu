@@ -16,7 +16,7 @@ struct Timer {
     uint32_t div_cycles; // Cycles for divider increment
 };
 
-void step_timer(struct Timer *timer, struct CPU *cpu);
+void step_timer(struct CPU *cpu);
 
 
 #endif

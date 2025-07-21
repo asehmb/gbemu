@@ -120,7 +120,7 @@ static inline void step_gpu(struct GPU *gpu, int cycles) {
                 gpu->mode_clock -= 80;
                 gpu->mode = 3; // Pixel Transfer
                 STAT(gpu) &= ~0x03; // Clear mode bits
-                STAT(gpu) |= 0x02;
+                STAT(gpu) |= 0x03;
                 // No STAT interrupt for mode 3
             }
             break;
@@ -200,6 +200,8 @@ static inline void step_gpu(struct GPU *gpu, int cycles) {
                     if (STAT(gpu) & 0x20) {
                         REQUEST_INTERRUPT(gpu, 0x02); // Request LCD STAT interrupt
                     }
+                    STAT(gpu) &= ~0x03; // Clear mode bits
+                    STAT(gpu) |= 0x02; // Set mode to OAM Search
                 }
             }
             break;

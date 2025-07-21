@@ -2,7 +2,7 @@
 #include "cpu.h"
 #include <stdint.h>
 
-void step_timer(struct Timer *timer, struct CPU *cpu) {
+void step_timer(struct CPU *cpu) {
     // Update DIV register every 256 cycles (16384 Hz)
     cpu->divider_cycles += cpu->cycles;
     while (cpu->divider_cycles >= 256) {

@@ -4,12 +4,14 @@
 #include <stdio.h>
 
 void dma_transfer(struct CPU *cpu, uint8_t value) {
+    cpu->dma_transfer = true; // Set DMA transfer flag
     uint16_t source = value << 8;
 
     for (int i = 0; i < 160; i++) {
         uint8_t data = READ_BYTE(cpu, source + i);
-        cpu->bus.rom[0xFE00 + i] = data; // dont need to use macro here
+        WRITE_BYTE(cpu, 0xFE00+i, data);
     }
+    cpu->dma_transfer = false; // Clear DMA transfer flag
 }
 
 uint8_t read_joypad(struct CPU *cpu) {

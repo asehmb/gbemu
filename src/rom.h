@@ -54,6 +54,9 @@
 uint8_t rom_init(struct MemoryBus *bus);
 uint16_t rom_size(uint8_t *rom);
 int ram_size(struct MemoryBus *bus);
+int load_rom(struct CPU *cpu, const char *filename);
+int load_bootrom(struct CPU *cpu, const char *filename);
+void patch_checksum(uint8_t *rom);
 
 
 #endif // _ROM_H

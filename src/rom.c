@@ -75,3 +75,112 @@ int ram_size(struct MemoryBus *bus) {
             return 0; // Unknown size
     }
 }
+
+
+
+int load_rom(struct CPU *cpu, const char *filename) {
+    FILE *file = fopen(filename, "rb");
+    if (!file) {
+        perror("Failed to open ROM file");
+        return -1;
+    }
+
+    if (fread(cpu->bus.rom, 0x8000,1, file) != 1) {
+        fprintf(stderr, "Failed to read ROM data\n");
+        fclose(file);
+        return -1;
+    }
+    cpu->bus.mbc_type = rom_init(&cpu->bus);
+
+    int num_banks = rom_size(cpu->bus.rom); // Number of 16KB ROM banks
+    // return if rom is only 32KB
+    cpu->bus.num_rom_banks = num_banks - 2; // Exclude the first two banks (header and first 32KB)
+
+    if (num_banks == 2) {
+        cpu->bus.banking = false;
+        cpu->bus.current_rom_bank = 0; // just use the first bank
+        return 0;
+    }
+
+    // Load the rest of the rom into RAM (probably should be renamed)
+    cpu->bus.rom_banks = malloc((num_banks - 2) * 0x4000); //when reading from ram account for 0x8000 missing (32KB)
+    if (!cpu->bus.rom_banks) {
+        fprintf(stderr, "Failed to allocate memory for RAM\n");
+        fclose(file);
+        return -1;
+    }
+
+    if (fread(cpu->bus.rom_banks, 1, (num_banks - 2) * 0x4000, file) != (num_banks - 2) * 0x4000) {
+        fprintf(stderr, "Failed to read RAM data\n");
+        free(cpu->bus.rom_banks);
+        fclose(file);
+        return -1;
+    }
+    cpu->bus.rom_size = num_banks * 0x4000;
+    cpu->bus.banking = true; // Enable banking for MBCs that support it
+    cpu->bus.current_rom_bank = 1;
+
+    size_t ram_sizes[] = {
+        0,       // 0x00: no RAM
+        2 * 1024,  // 0x01: 2 KB
+        8 * 1024,  // 0x02: 8 KB
+        32 * 1024, // 0x03: 32 KB
+        128 * 1024,// 0x04: 128 KB
+        64 * 1024  // 0x05: 64 KB
+    };
+
+    uint8_t ram_size = cpu->bus.rom[0x149]; // RAM size code from header
+    size_t cart_ram_size = 0;
+
+
+    if (ram_size < sizeof(ram_sizes)/sizeof(ram_sizes[0])) {
+        cart_ram_size = ram_sizes[ram_size];
+    } else {
+        cart_ram_size = 0; // unknown or no RAM
+    }
+
+    cpu->bus.cart_ram = NULL;
+    cpu->bus.ram_size = cart_ram_size;
+
+    if (cart_ram_size > 0) {
+        cpu->bus.cart_ram = malloc(cart_ram_size);
+        if (!cpu->bus.cart_ram) {
+            fprintf(stderr, "Failed to allocate cartridge RAM\n");
+            // handle error or exit
+        }
+    }
+
+    fclose(file);
+    return 0;
+}
+
+int load_bootrom(struct CPU *cpu, const char *filename) {
+    FILE *file = fopen(filename, "rb");
+    if (!file) {
+        perror("Failed to open bootrom file");
+        return -1;
+    }
+
+    // Load 256 bytes into the CPU's bootrom buffer
+    size_t read = fread(cpu->bootrom, 1, 256, file);
+    fclose(file);
+
+    if (read != 256) {
+        fprintf(stderr, "Boot ROM size incorrect (read %zu bytes, expected 256)\n", read);
+        return -1;
+    }
+
+    // Check first few bytes of the boot ROM (should be 0x31, 0xFE, 0xFF for DMG boot ROM)
+
+    cpu->bootrom_enabled = true;  // Enable boot ROM overlay
+    cpu->pc = 0x0000;             // Start execution at boot ROM
+    return 0;
+}
+
+void patch_checksum(uint8_t *rom) {
+    uint8_t checksum = 0;
+    for (uint16_t addr = 0x0134; addr <= 0x014C; addr++) {
+        checksum = checksum - rom[addr] - 1;
+    }
+    rom[0x014D] = checksum; // Overwrite the checksum byte
+}
