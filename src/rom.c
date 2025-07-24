@@ -1,5 +1,6 @@
 
 #include "rom.h"
+#include <stdio.h>
 
 uint8_t rom_init(struct MemoryBus *bus) {
 
@@ -99,26 +100,24 @@ int load_rom(struct CPU *cpu, const char *filename) {
     if (num_banks == 2) {
         cpu->bus.banking = false;
         cpu->bus.current_rom_bank = 0; // just use the first bank
-        return 0;
+    } else {
+        // Load the rest of the rom into RAM (probably should be renamed)
+        cpu->bus.rom_banks = malloc((num_banks - 2) * 0x4000); //when reading from ram account for 0x8000 missing (32KB)
+        if (!cpu->bus.rom_banks) {
+            fprintf(stderr, "Failed to allocate memory for RAM\n");
+            fclose(file);
+            return -1;
+        }
+        if (fread(cpu->bus.rom_banks, 1, (num_banks - 2) * 0x4000, file) != (num_banks - 2) * 0x4000) {
+            fprintf(stderr, "Failed to read RAM data\n");
+            free(cpu->bus.rom_banks);
+            fclose(file);
+            return -1;
+        }
+        cpu->bus.rom_size = num_banks * 0x4000;
+        cpu->bus.banking = true; // Enable banking for MBCs that support it
+        cpu->bus.current_rom_bank = 1;
     }
-
-    // Load the rest of the rom into RAM (probably should be renamed)
-    cpu->bus.rom_banks = malloc((num_banks - 2) * 0x4000); //when reading from ram account for 0x8000 missing (32KB)
-    if (!cpu->bus.rom_banks) {
-        fprintf(stderr, "Failed to allocate memory for RAM\n");
-        fclose(file);
-        return -1;
-    }
-
-    if (fread(cpu->bus.rom_banks, 1, (num_banks - 2) * 0x4000, file) != (num_banks - 2) * 0x4000) {
-        fprintf(stderr, "Failed to read RAM data\n");
-        free(cpu->bus.rom_banks);
-        fclose(file);
-        return -1;
-    }
-    cpu->bus.rom_size = num_banks * 0x4000;
-    cpu->bus.banking = true; // Enable banking for MBCs that support it
-    cpu->bus.current_rom_bank = 1;
 
     size_t ram_sizes[] = {
         0,       // 0x00: no RAM
@@ -141,6 +140,7 @@ int load_rom(struct CPU *cpu, const char *filename) {
 
     cpu->bus.cart_ram = NULL;
     cpu->bus.ram_size = cart_ram_size;
+    LOG("RAM SIZE: %zu bytes\n", cart_ram_size);
 
     if (cart_ram_size > 0) {
         cpu->bus.cart_ram = malloc(cart_ram_size);

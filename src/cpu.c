@@ -6,12 +6,27 @@
 void dma_transfer(struct CPU *cpu, uint8_t value) {
     cpu->dma_transfer = true; // Set DMA transfer flag
     uint16_t source = value << 8;
+    #ifdef LOGGING
+    if (source == 0xFE00) {
+        // dump ram
+        LOG("Dumping RAM at 0x%04X\n", source);
+        for (int i = 0; i < 0x100; i++) {
+            if (i % 16 == 0) {
+                LOG("\n%04X: ", i);
+            }
+            LOG("%02X ", READ_BYTE(cpu, source + i));
+        }
+        LOG("\n");
+
+    }
+    #endif
 
     for (int i = 0; i < 160; i++) {
         uint8_t data = READ_BYTE(cpu, source + i);
         WRITE_BYTE(cpu, 0xFE00+i, data);
     }
     cpu->dma_transfer = false; // Clear DMA transfer flag
+    // LOG("DMA transfer completed from %04X to OAM\n", source);
 }
 
 uint8_t read_joypad(struct CPU *cpu) {

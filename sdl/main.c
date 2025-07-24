@@ -9,13 +9,7 @@
 #include <string.h>
 #include "input.h"
 
-#define LOGGING
 
-#ifdef LOGGING
-#define LOG(fmt, ...) fprintf(stdout, fmt, ##__VA_ARGS__)
-#else
-#define LOG(fmt, ...) ((void)0)
-#endif
 
 #define READ_BYTE_DEBUG(cpu, addr) \
     ((cpu).bootrom_enabled && (addr) < 0x0100) ? (cpu).bootrom[(addr)] : \
@@ -145,7 +139,7 @@ int main(int argc, char *argv[]) {
     uint32_t fps_timer = SDL_GetTicks();
     uint32_t fps = 0;
     char window_title[256];
-    const int TARGET_FPS = 60;
+    const int TARGET_FPS = 59;
     const int FRAME_TIME = 1000 / TARGET_FPS; // in ms
 
     // Main emulation loop
@@ -217,7 +211,7 @@ int main(int argc, char *argv[]) {
         const int CYCLES_PER_FRAME = 70224;
         int frame_cycles = 0;
         
-        while (frame_cycles < CYCLES_PER_FRAME && !gpu.should_render) {
+        while (!gpu.should_render) {
             // fprintf(log_file, "A:%02X F:%02X B:%02X C:%02X D:%02X E:%02X H:%02X"\
             //     "L:%02X SP:%04X PC:%04X PCMEM:%02X,%02X,%02X,%02X,%02X,%02X" \
             //     " IE:%02X CURRENT ROM BANK:%d PPU MODE:%d CYCLES TAKEN:%d"\
@@ -235,9 +229,11 @@ int main(int argc, char *argv[]) {
             
             uint32_t prev_cycles = cpu.cycles;
             step_cpu(&cpu); // Step the CPU
+            do {
             step_timer(&cpu);  // Step the timer
             step_gpu(&gpu, cpu.cycles); // Step the GPU
-            
+            } while (cpu.halted && ((cpu.bus.rom[0xFF0F] & cpu.bus.rom[0xFFFF]) == 0)); // Handle interrupts if CPU is halted
+
             frame_cycles += (cpu.cycles - prev_cycles);
         }
 

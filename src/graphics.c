@@ -8,8 +8,6 @@ uint8_t inline read_vram(struct GPU *gpu, uint16_t addr) {
         fprintf(stderr, "VRAM access out of bounds: 0x%04X\n", addr);
         return 0; // Return 0 for out of bounds access
     }
-    if (gpu->mode == 3) return 0xFF;  // Block during rendering
-
     return gpu->vram[addr];
 }
 
@@ -37,7 +35,6 @@ void render_scanline(struct GPU *gpu, int line) {
         // RENDER SPRITES
         render_sprites(gpu);
     }
-
 }
 
 /*
@@ -116,6 +113,9 @@ void render_tile(struct GPU *gpu) {
 typedef struct {
     uint8_t index;
     uint8_t x;
+    uint8_t y;
+    uint8_t tile_index;
+    uint8_t flags;
 } SpriteInfo;
 
 int sprite_cmp(const void *a, const void *b) {
@@ -123,10 +123,9 @@ int sprite_cmp(const void *a, const void *b) {
     const SpriteInfo *s2 = (const SpriteInfo *)b;
     // Game Boy sprite priority: lower index = higher priority
     // If X positions are the same, use index for priority
-    if (s1->x == s2->x) {
-        return s1->index - s2->index; // Lower index first (higher priority)
-    }
-    return s1->x - s2->x; // Draw left-to-right for different X positions
+    if (s1->x != s2->x) return s2->x - s1->x;
+    return s2->index - s1->index;
+
 }
 
 /*
@@ -169,7 +168,10 @@ void render_sprites(struct GPU *gpu) {
         if (ly >= y_pos && ly < y_pos + y_size) {
             to_draw[drawn++] = (SpriteInfo){
                                     .index = sprite_index,
-                                    .x = x_pos
+                                    .x = x_pos,
+                                    .y = y_pos,
+                                    .tile_index = gpu->vram[0xFE00 + index + 2],
+                                    .flags = gpu->vram[0xFE00 + index + 3]
                                 }; // Store sprite index and X position
 
         }
@@ -179,38 +181,31 @@ void render_sprites(struct GPU *gpu) {
     qsort(to_draw, drawn, sizeof(SpriteInfo), sprite_cmp);
     for (size_t i = 0; i < drawn; i++) {
         uint8_t base = to_draw[i].index * 4;
-        uint8_t y_pos = gpu->vram[0xFE00 + base] - 16;
-        uint8_t x_pos = gpu->vram[0xFE00 + base + 1] - 8;
-        uint8_t tile_index = gpu->vram[0xFE00 + base + 2];
-        uint8_t flags = gpu->vram[0xFE00 + base + 3];
-        uint8_t obp = (flags & 0x10) ? OBP1(gpu) : OBP0(gpu); // Object Palette
-        if (use8x16_sprites) {
-            tile_index &= 0xFE; // force even
-        }
+        uint8_t obp = (to_draw[i].flags & 0x10) ? OBP1(gpu) : OBP0(gpu); // Object Palette
 
-        bool y_flip = (flags & 0x40) != 0; // Y flip
-        bool x_flip = (flags & 0x20) != 0; // X flip
-        bool priority = (flags & 0x80) != 0; // Priority
+        bool y_flip = (to_draw[i].flags & 0x40) != 0; // Y flip
+        bool x_flip = (to_draw[i].flags & 0x20) != 0; // X flip
+        bool priority = (to_draw[i].flags & 0x80) != 0; // Priority
 
         uint8_t y_size = use8x16_sprites ? 16 : 8; // Sprite height
-        uint8_t line_in_sprite = ly - y_pos; // Line in sprite (0-15 for 8x16, 0-7 for 8x8)
+        uint8_t line_in_sprite = ly - to_draw[i].y; // Line in sprite (0-15 for 8x16, 0-7 for 8x8)
         if (y_flip) line_in_sprite = y_size - 1 - line_in_sprite; // Flip Y coordinate
 
         // For 8x16 sprites, pick tile_index or tile_index+1 depending on line_in_sprite
         if (use8x16_sprites) {
             if (line_in_sprite < 8) {
                 // top tile
-                tile_index = tile_index & 0xFE;
+                to_draw[i].tile_index &= 0xFE;
             } else {
                 // bottom tile
-                tile_index = (tile_index & 0xFE) + 1;
+                to_draw[i].tile_index = (to_draw[i].tile_index & 0xFE) + 1;
                 line_in_sprite -= 8;
             }
         }
 
         line_in_sprite *= 2; // Each line has 2 bytes (8 pixels each)
 
-        uint16_t tile_addr = 0x8000 + (tile_index * 16) + line_in_sprite;
+        uint16_t tile_addr = 0x8000 + (to_draw[i].tile_index * 16) + line_in_sprite;
         uint8_t data1 = read_vram(gpu, tile_addr);     // Low bit plane
         uint8_t data2 = read_vram(gpu, tile_addr + 1); // High bit plane
         for (int pixel = 0; pixel < 8; pixel++) {
@@ -222,7 +217,7 @@ void render_sprites(struct GPU *gpu) {
                 color_index = ((data2 >> (7 - pixel)) & 1) << 1 |
                                     ((data1 >> (7 - pixel)) & 1);
             }
-            int pixel_x = x_pos + pixel;
+            int pixel_x = to_draw[i].x + pixel;
             if (pixel_x < 0 || pixel_x >= SCREEN_WIDTH) continue;
 
             uint8_t bg_pixel = gpu->framebuffer[ly * SCREEN_WIDTH + pixel_x]; // check if pixel is already drawn

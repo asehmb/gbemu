@@ -45,7 +45,6 @@
 #define SCX(gpu) (gpu->vram[0xFF43]) // Scroll X (0xFF43)
 #define LY(gpu) (gpu->vram[0xFF44]) // Current Line (0xFF44)
 #define LYC(gpu) (gpu->vram[0xFF45]) // LY Compare (0xFF45)
-#define DMA(gpu) (gpu->vram[0xFF46]) // DMA Transfer (0xFF46)
 #define BGP(gpu) (gpu->vram[0xFF47]) // BG Palette (0xFF47)
 #define OBP0(gpu) (gpu->vram[0xFF48]) // Object Palette 0 (0xFF48)
 #define OBP1(gpu) (gpu->vram[0xFF49]) // Object Palette 1 (0xFF49)

@@ -1,6 +1,14 @@
 #ifndef _CPU_H
 #define _CPU_H
 
+#define LOGGING
+
+#ifdef LOGGING
+#define LOG(fmt, ...) fprintf(stdout, fmt, ##__VA_ARGS__)
+#else
+#define LOG(fmt, ...) ((void)0)
+#endif
+
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -160,9 +168,9 @@ static inline uint8_t READ_BYTE(struct CPU *cpu, uint16_t addr) {
 		if (cpu->dma_transfer) {
 			return cpu->bus.rom[addr];
 		}
-		if ((cpu->bus.rom[0xFF41] & 0x03) == 0x03) { // blocked in mode 3
-			return 0xFF; // Return dummy value if VRAM is blocked
-		}
+		// if ((cpu->bus.rom[0xFF41] & 0x03) == 0x03) { // blocked in mode 3
+		// 	return 0xFF; // Return dummy value if VRAM is blocked
+		// }
 		return cpu->bus.rom[addr]; // Read from VRAM
 	}
 	if (0xFE00 <= addr && addr < 0xFEA0) { // OAM
@@ -174,6 +182,9 @@ static inline uint8_t READ_BYTE(struct CPU *cpu, uint16_t addr) {
 			return 0xFF; // Block reads in mode 2 and 3
 		}
 		return cpu->bus.rom[addr]; // Read from OAM
+	}
+	if (0xE000 <= addr && addr < 0xFE00) { // Echo RAM
+		return cpu->bus.rom[addr - 0x2000]; // Read from echo RAM
 	}
 	return cpu->bus.rom[addr];
 }
@@ -266,6 +277,7 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 			{
 				if (addr < 0x2000) { /* RAM enable */
 					cpu->bus.ram_banking_toggle = ((value & 0x0F) == 0x0A);
+					printf("RAM banking %s\n", cpu->bus.ram_banking_toggle ? "enabled" : "disabled");
 				} else if (addr < 0x3000) { /* ROM bank lower 8 bits */
 					cpu->bus.current_rom_bank = (cpu->bus.current_rom_bank & 0x100) | (value & 0xFF);
 				} else if (addr < 0x4000) { /* ROM bank bit 8 */
@@ -280,7 +292,13 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 				break;
 		}
 	} else if (addr < 0xA000) {
-		cpu->bus.rom[addr] = value; // Write to VRAM
+		if (cpu->dma_transfer) {
+			cpu->bus.rom[addr] = value;
+		}
+		// if ((cpu->bus.rom[0xFF41] & 0x03) == 0x03) { // blocked in mode 3
+		// 	return; // Return dummy value if VRAM is blocked
+		// }
+		cpu->bus.rom[addr] = value;
 	} else if (addr < 0xC000) {
 		/* Write to cartridge RAM if enabled */
 		if (cpu->bus.ram_banking_toggle && cpu->bus.cart_ram) {
@@ -292,7 +310,6 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 	} else if (addr < 0xE000) { // WRAM
 		cpu->bus.rom[addr] = value; // Write to WRAM
 	} else if (addr < 0xFE00) { // Echo RAM (0xE000-0xFDFF)
-		cpu->bus.rom[addr] = value;
 		cpu->bus.rom[addr - 0x2000] = value;
 	} else if (addr < 0xFEA0) { // OAM
 		if (cpu->dma_transfer == true) {
