@@ -315,11 +315,23 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 		cpu->bus.rom[addr] = value;
 	} else if (addr < 0xC000) {
 		/* Write to cartridge RAM if enabled */
-
 		if (cpu->bus.ram_enabled && cpu->bus.cart_ram) {
-			size_t w_offset = (cpu->bus.current_ram_bank * 0x2000) + (addr - 0xA000);
-			if (w_offset < cpu->bus.ram_size) {
-				cpu->bus.cart_ram[w_offset] = value;
+			size_t offset;
+
+			if (cpu->bus.ram_size <= 0x2000) {
+				// 2KB or 8KB RAM: wrap around using modulo
+				offset = (addr - 0xA000) % cpu->bus.ram_size;
+			} else if (cpu->bus.mbc1_mode == 1 && cpu->bus.ram_size >= 0x8000) {
+				// Mode 1, 32KB RAM: support 4 banks
+				offset = (cpu->bus.current_ram_bank * 0x2000) + (addr - 0xA000);
+			} else {
+				// Mode 0: always use RAM bank 0
+				offset = addr - 0xA000;
+			}
+
+			// Bounds check
+			if (offset < cpu->bus.ram_size) {
+				cpu->bus.cart_ram[offset] = value;
 			}
 		}
 	} else if (addr < 0xE000) { // WRAM
