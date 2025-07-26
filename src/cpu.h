@@ -61,8 +61,11 @@ struct MemoryBus {
 	uint8_t current_ram_bank; // Current RAM bank for MBCs that support it
 	uint8_t *rom_banks;
 	uint8_t *cart_ram; // RAM for MBCs that support it
-	bool banking; //internal use
-	bool ram_banking_toggle; // Use RAM banking for MBCs that support it
+	bool rom_banking_toggle; // Use ROM banking for MBCs that support it
+	bool ram_enabled; // Use RAM banking for MBCs that support it
+	uint8_t mbc1_mode;
+	uint8_t rom_bank_high;
+	uint8_t rom_bank_low;
 	uint8_t mbc_type;
 	uint8_t num_ram_banks;
 	uint8_t num_rom_banks;
@@ -75,16 +78,16 @@ struct CPU {
 	struct MemoryBus bus;
 	struct flags f; // Flags register
 	bool halted; // Halt state
-	bool ime;
+	bool ime; // Interrupt Master Enable
 	bool ime_pending; // IME pending state
 	uint8_t cycles; // Number of cycles to execute
 	uint16_t divider_cycles; // Divider cycles for timer
 	uint16_t tima_counter; // Timer counter for TIMA register
 	uint8_t bootrom[256]; // Boot ROM
-	bool bootrom_enabled;
-	uint8_t p1_actions;
-	uint8_t p1_directions;
-	bool dma_transfer;
+	bool bootrom_enabled; // Boot ROM enabled state
+	uint8_t p1_actions; // joypad actions (buttons)
+	uint8_t p1_directions; // joypad directions (up, down, left, right)
+	bool dma_transfer; // DMA transfer flag
 };
 
 /* MACROS FOR QUICK ACCESS */
@@ -151,32 +154,57 @@ static inline uint8_t READ_BYTE(struct CPU *cpu, uint16_t addr) {
 		return read_joypad(cpu);
 	}
 	if (cpu->bus.current_rom_bank && addr >= 0x4000 && addr < 0x8000) {
-		if (cpu->bus.current_rom_bank == 1) {
-			return cpu->bus.rom[addr];
-		} else {
-			return cpu->bus.rom_banks[(cpu->bus.current_rom_bank - 2) * 0x4000 + 
-				(addr - 0x4000)];
-		}
+		// if (cpu->bus.mbc_type == 1 && cpu->bus.mbc1_mode) {
+		// 	if (cpu->bus.current_rom_bank == 1) {
+		// 		return cpu->bus.rom[addr];
+		// 	} else {
+		// 		return cpu->bus.rom_banks[((cpu->bus.current_rom_bank & 0x1F)-3) * 0x4000 + (addr - 0x4000)];
+		// 	}
+		// } else {
+			if (cpu->bus.current_rom_bank == 1) {
+				return cpu->bus.rom[addr];
+			} else {
+				return cpu->bus.rom_banks[(cpu->bus.current_rom_bank - 2) * 0x4000 + 
+					(addr - 0x4000)];
+			}
+		// }
 	}
 	if (0xA000 <= addr && addr < 0xC000) {
-		if (cpu->bus.ram_banking_toggle && cpu->bus.cart_ram) {
-			return cpu->bus.cart_ram[(cpu->bus.current_ram_bank * 0x2000) + 
-				(addr - 0xA000)];
+		if (cpu->bus.ram_enabled && cpu->bus.cart_ram) {
+			size_t offset;
+
+			if (cpu->bus.ram_size <= 0x2000) {
+				// 2KB or 8KB RAM: wrap around using modulo
+				offset = (addr - 0xA000) % cpu->bus.ram_size;
+			} else if (cpu->bus.mbc1_mode == 1 && cpu->bus.ram_size >= 0x8000) {
+				// Mode 1, 32KB RAM: support 4 banks
+				offset = (cpu->bus.current_ram_bank * 0x2000) + (addr - 0xA000);
+			} else {
+				// Mode 0: always use RAM bank 0
+				offset = addr - 0xA000;
+			}
+
+			// Bounds check
+			if (offset < cpu->bus.ram_size) {
+				return cpu->bus.cart_ram[offset];
+			}
 		}
+		return 0xFF;
 	}
+
 	if (0x8000 <= addr && addr < 0xA000) { // VRAM
-		if (cpu->dma_transfer) {
-			return cpu->bus.rom[addr];
-		}
+		// if (cpu->dma_transfer) {
+		// 	return cpu->bus.rom[addr];
+		// }
 		// if ((cpu->bus.rom[0xFF41] & 0x03) == 0x03) { // blocked in mode 3
 		// 	return 0xFF; // Return dummy value if VRAM is blocked
 		// }
 		return cpu->bus.rom[addr]; // Read from VRAM
 	}
 	if (0xFE00 <= addr && addr < 0xFEA0) { // OAM
-		if (cpu->dma_transfer == true) {
-			return cpu->bus.rom[addr];
-		}
+		// if (cpu->dma_transfer == true) {
+		// 	return cpu->bus.rom[addr];
+		// }
 		uint8_t stat_mode = cpu->bus.rom[0xFF41] & 0x03;
 		if (stat_mode == 0x02 || stat_mode == 0x03) {
 			return 0xFF; // Block reads in mode 2 and 3
@@ -197,48 +225,36 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 		return;
 	} else if (addr < 0x8000) {
 		switch(cpu->bus.mbc_type) {
-			case 1: /* MBC1 */
-			{
-				if (addr < 0x2000) { /* RAM enable */
-					cpu->bus.ram_banking_toggle = ((value & 0x0F) == 0x0A);
-				} else if (addr < 0x4000) { /* ROM bank select (0x2000-0x3FFF) */
-					/* Set the ROM bank number (1-127) */
-					uint8_t bank = value & 0x1F;
-					if (bank == 0) bank = 1;
-					cpu->bus.current_rom_bank = bank;
-					/* Ensure we don't exceed available ROM banks */
-					if (cpu->bus.current_rom_bank >= cpu->bus.num_rom_banks) {
-						cpu->bus.current_rom_bank %= cpu->bus.num_rom_banks;
-						if (cpu->bus.current_rom_bank == 0) cpu->bus.current_rom_bank = 1;
-					}
-				} else if (addr < 0x6000) { /* RAM bank select (0x4000-0x5FFF) */
-					if (cpu->bus.ram_banking_toggle && value <= 0x03) {
-						/* Select RAM bank (0-3) */
-						cpu->bus.current_ram_bank = value;
-						/* Ensure RAM bank is valid */
-						if (cpu->bus.ram_size > 0) {
-							uint8_t num_ram_banks = cpu->bus.ram_size / 0x2000;
-							if (num_ram_banks > 0) {
-								cpu->bus.current_ram_bank %= num_ram_banks;
-							}
-						}
-					}
-				} else if (addr < 0x8000) { /* ROM mode (0x6000-0x7FFF) */
-					/* Switch between ROM and RAM mode */
-					if (value & 0x01) {
-						cpu->bus.banking = true;
+			case 1: { // MBC1
+				if (addr < 0x2000) { // RAM enable/disable
+					cpu->bus.ram_enabled = ((value & 0x0F) == 0x0A) ? true : false;
+				} else if (addr < 0x4000) { // ROM bank lower 5 bits
+					uint8_t lower = (value & 0x1F) | (cpu->bus.current_rom_bank & 0x60);
+					if (lower == 0) lower = 1;
+					cpu->bus.current_rom_bank = lower;
+				} else if (addr < 0x6000) { // ROM bank upper or RAM bank number
+					uint8_t upper = value & 0x03;
+					if (cpu->bus.mbc1_mode == 0) {
+						// ROM banking mode: upper affects ROM only
+						cpu->bus.current_rom_bank = (upper << 5) | (cpu->bus.current_rom_bank & 0x1F);
+						cpu->bus.current_ram_bank = 0; // RAM bank locked to 0
 					} else {
-						cpu->bus.banking = false;
-						cpu->bus.current_rom_bank = 0;
+						// RAM banking mode: upper affects RAM only
+						cpu->bus.current_ram_bank = upper & 0x03;
+						// ROM bank is only lower 5 bits
+						cpu->bus.current_rom_bank &= 0x1F;
 					}
+					cpu->bus.current_rom_bank %= cpu->bus.num_rom_banks;
+				} else if (addr < 0x8000) { // Banking mode select
+					cpu->bus.mbc1_mode = value & 0x01;
 				}
-				break;
+				return;
 			}
 			case 3: /* MBC3 */
 			{
 				if (addr < 0x2000) { /* RAM/RTC enable */
 					/* 0x0000-0x1FFF: RAM/RTC Enable (0x0A to enable, any other value to disable) */
-					cpu->bus.ram_banking_toggle = ((value & 0x0F) == 0x0A);
+					cpu->bus.ram_enabled = ((value & 0x0F) == 0x0A);
 				} else if (addr < 0x4000) { /* ROM bank select (0x2000-0x3FFF) */
 					/* Set the ROM bank number (1-127) */
 					uint8_t bank = value & 0x7F;
@@ -250,14 +266,12 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 						if (cpu->bus.current_rom_bank == 0) cpu->bus.current_rom_bank = 1;
 					}
 				} else if (addr < 0x6000) { /* RAM bank or RTC register select (0x4000-0x5FFF) */
-					if (value <= 0x03) {
-						/* Select RAM bank (0-3) */
-						cpu->bus.current_ram_bank = value;
+					if (value <= 0x07) {
 						/* Ensure RAM bank is valid */
 						if (cpu->bus.ram_size > 0) {
 							uint8_t num_ram_banks = cpu->bus.ram_size / 0x2000;
 							if (num_ram_banks > 0) {
-								cpu->bus.current_ram_bank %= num_ram_banks;
+								cpu->bus.current_ram_bank = value %num_ram_banks;
 							}
 						}
 					} else if (value >= 0x08 && value <= 0x0C) {
@@ -271,13 +285,13 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 					}
 					prev_value = value;
 				}
-				break;
+				return;
 			}
 			case 5: /* MBC5 */
 			{
 				if (addr < 0x2000) { /* RAM enable */
-					cpu->bus.ram_banking_toggle = ((value & 0x0F) == 0x0A);
-					printf("RAM banking %s\n", cpu->bus.ram_banking_toggle ? "enabled" : "disabled");
+					cpu->bus.ram_enabled = ((value & 0x0F) == 0x0A);
+					printf("RAM banking %s\n", cpu->bus.ram_enabled ? "enabled" : "disabled");
 				} else if (addr < 0x3000) { /* ROM bank lower 8 bits */
 					cpu->bus.current_rom_bank = (cpu->bus.current_rom_bank & 0x100) | (value & 0xFF);
 				} else if (addr < 0x4000) { /* ROM bank bit 8 */
@@ -295,13 +309,14 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 		if (cpu->dma_transfer) {
 			cpu->bus.rom[addr] = value;
 		}
-		// if ((cpu->bus.rom[0xFF41] & 0x03) == 0x03) { // blocked in mode 3
-		// 	return; // Return dummy value if VRAM is blocked
-		// }
+		if ((cpu->bus.rom[0xFF41] & 0x03) == 0x03) { // blocked in mode 3
+			return; // Return dummy value if VRAM is blocked
+		}
 		cpu->bus.rom[addr] = value;
 	} else if (addr < 0xC000) {
 		/* Write to cartridge RAM if enabled */
-		if (cpu->bus.ram_banking_toggle && cpu->bus.cart_ram) {
+
+		if (cpu->bus.ram_enabled && cpu->bus.cart_ram) {
 			size_t w_offset = (cpu->bus.current_ram_bank * 0x2000) + (addr - 0xA000);
 			if (w_offset < cpu->bus.ram_size) {
 				cpu->bus.cart_ram[w_offset] = value;
@@ -312,10 +327,10 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 	} else if (addr < 0xFE00) { // Echo RAM (0xE000-0xFDFF)
 		cpu->bus.rom[addr - 0x2000] = value;
 	} else if (addr < 0xFEA0) { // OAM
-		if (cpu->dma_transfer == true) {
-			cpu->bus.rom[addr] = value;
-			return;
-		}
+		// if (cpu->dma_transfer == true) {
+		// 	cpu->bus.rom[addr] = value;
+		// 	return;
+		// }
 		uint8_t stat_mode = cpu->bus.rom[0xFF41] & 0x03;
 		if (stat_mode == 0x02 || stat_mode == 0x03) {
 			// Block writes in mode 2 and 3
@@ -332,6 +347,12 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 	} else if (addr == 0xFF04) { /* DIV reset */
 		cpu->bus.rom[addr] = 0;
 		cpu->divider_cycles = 0;
+	} else if (addr == 0xFF42 || addr == 0xFF43) {
+		uint8_t stat_mode = cpu->bus.rom[0xFF41] & 0x03;
+		if (stat_mode == 0x03) {
+			return;
+		}
+		cpu->bus.rom[addr] = value; // Write to SC registers 
 	} else if (addr == 0xFF46) { /*DMA transfer*/
 		dma_transfer(cpu, value);
 		cpu->bus.rom[addr] = value;

@@ -95,10 +95,10 @@ int load_rom(struct CPU *cpu, const char *filename) {
 
     int num_banks = rom_size(cpu->bus.rom); // Number of 16KB ROM banks
     // return if rom is only 32KB
-    cpu->bus.num_rom_banks = num_banks - 2; // Exclude the first two banks (header and first 32KB)
+    cpu->bus.num_rom_banks = num_banks; // Exclude the first two banks (header and first 32KB)
 
     if (num_banks == 2) {
-        cpu->bus.banking = false;
+        cpu->bus.rom_banking_toggle = false;
         cpu->bus.current_rom_bank = 0; // just use the first bank
     } else {
         // Load the rest of the rom into RAM (probably should be renamed)
@@ -115,9 +115,11 @@ int load_rom(struct CPU *cpu, const char *filename) {
             return -1;
         }
         cpu->bus.rom_size = num_banks * 0x4000;
-        cpu->bus.banking = true; // Enable banking for MBCs that support it
+        cpu->bus.rom_banking_toggle = true; // Enable banking for MBCs that support it
         cpu->bus.current_rom_bank = 1;
     }
+    LOG("ROM loaded: %s, type: 0x%02X, size: %d banks (%d KB)\n",
+        filename, cpu->bus.mbc_type, num_banks, num_banks * 16);
 
     size_t ram_sizes[] = {
         0,       // 0x00: no RAM

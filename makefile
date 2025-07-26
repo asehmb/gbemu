@@ -1,43 +1,84 @@
 # Compiler and flags
 CC = clang
-CFLAGS = -O2 -march=native -flto -DNDEBUG -Wall -pthread -I/opt/homebrew/include/SDL2 -I$(SRC_DIR)
-LDFLAGS = -L/opt/homebrew/lib -lSDL2 -lSDL2main -lprofiler
+# Use -g -O0 for debugging, -O2 for release builds
+# BASE_CFLAGS = -O2 -march=native -flto -DNDEBUG -Wall -pthread -I$(SRC_DIR)
+BASE_CFLAGS = -g -O0 -march=native -Wall -pthread -I$(SRC_DIR)
 
 # Directories
 SRC_DIR = src
 BUILD_DIR = build
-PLATFORM_DIR = sdl
 
-# Source files
+# Shared source files (always compiled the same way)
 SRC_FILES = $(wildcard $(SRC_DIR)/*.c)
 OBJ_FILES = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(SRC_FILES))
 
-# Platform main file
-MAIN_OBJ = $(BUILD_DIR)/main.o
+# Target configurations
+# SDL target
+SDL_DIR = sdl
+SDL_TARGET = $(SDL_DIR)/gbemu
+SDL_CFLAGS = $(BASE_CFLAGS) -I/opt/homebrew/include/SDL2
+SDL_LDFLAGS = -L/opt/homebrew/lib -lSDL2 -lSDL2main -lprofiler
+SDL_MAIN_OBJ = $(BUILD_DIR)/sdl_main.o
 
-# Target binary
-TARGET = $(PLATFORM_DIR)/gbemu
+# Terminal/CLI target (example for future)
+CLI_DIR = cli
+CLI_TARGET = $(CLI_DIR)/gbemu
+CLI_CFLAGS = $(BASE_CFLAGS)
+CLI_LDFLAGS = -lprofiler
+CLI_MAIN_OBJ = $(BUILD_DIR)/cli_main.o
 
-.PHONY: all clean
+.PHONY: all clean sdl cli available-targets help
 
-# Default target
-all: $(TARGET)
+# Check what targets are available
+AVAILABLE_TARGETS = sdl
+ifneq ($(wildcard $(CLI_DIR)/main.c),)
+AVAILABLE_TARGETS += cli
+endif
 
-# Final binary
-$(TARGET): $(OBJ_FILES) $(MAIN_OBJ)
-	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+# Default target builds all available targets
+all: $(AVAILABLE_TARGETS)
 
-# Compile src/*.c files
+# Show available targets
+help:
+	@echo "Available targets:"
+	@echo "  all     - Build all available targets: $(AVAILABLE_TARGETS)"
+	@echo "  sdl     - Build SDL version"
+	@echo "  cli     - Build CLI version (if cli/main.c exists)"
+	@echo "  clean   - Clean build artifacts"
+	@echo "  help    - Show this help message"
+
+# SDL target
+sdl: $(SDL_TARGET)
+
+# CLI target (only if cli/main.c exists)
+cli: $(CLI_TARGET)
+
+# SDL binary
+$(SDL_TARGET): $(OBJ_FILES) $(SDL_MAIN_OBJ)
+	@mkdir -p $(SDL_DIR)
+	$(CC) $(SDL_CFLAGS) $^ -o $@ $(SDL_LDFLAGS)
+
+# CLI binary (if cli/main.c exists)
+$(CLI_TARGET): $(OBJ_FILES) $(CLI_MAIN_OBJ)
+	@mkdir -p $(CLI_DIR)
+	$(CC) $(CLI_CFLAGS) $^ -o $@ $(CLI_LDFLAGS)
+
+# Compile shared src/*.c files
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(BASE_CFLAGS) -c $< -o $@
 
-# Compile platform main.c
-$(MAIN_OBJ): $(PLATFORM_DIR)/main.c
+# Compile SDL main.c
+$(SDL_MAIN_OBJ): $(SDL_DIR)/main.c
 	@mkdir -p $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(SDL_CFLAGS) -c $< -o $@
+
+# Compile CLI main.c (if it exists)
+$(CLI_MAIN_OBJ): $(CLI_DIR)/main.c
+	@mkdir -p $(BUILD_DIR)
+	$(CC) $(CLI_CFLAGS) -c $< -o $@
 
 # Clean build artifacts
 clean:
 	rm -rf $(BUILD_DIR)
-	rm -f $(TARGET)
+	rm -f $(SDL_TARGET) $(CLI_TARGET)

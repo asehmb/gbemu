@@ -49,6 +49,88 @@ void render_scanline(struct GPU *gpu, int line) {
     Bit 0 - BG Display (for CGB see below) (0=Off, 1=On)
  */
 void render_tile(struct GPU *gpu) {
+    /*
+    // verbose setup for debugging
+    uint8_t lcdc = LCDC(gpu);
+    const uint8_t ly = LY(gpu);
+    uint16_t tile_data_addr;
+    uint16_t tile_pattern_table = 0;
+    bool using_window = false;
+    bool unsig = true;
+
+    uint8_t scx = SCX(gpu);
+    uint8_t scy = SCY(gpu);
+    uint8_t wx = WX(gpu);
+    uint8_t wy = WY(gpu);
+
+    // Window enabled and within window Y range?
+    if ((lcdc & 0x20) && (ly >= wy)) {
+        using_window = true;
+        wx -= 7;  // Only adjust WX when actually using window
+    }
+
+    // Tile pattern table selection
+    if (lcdc & 0x10) {
+        tile_pattern_table = 0x8000;  // Unsigned tile numbers
+    } else {
+        tile_pattern_table = 0x8800;  // Signed tile numbers
+        unsig = false;
+    }
+
+    // Tile map selection
+    if (!using_window) {
+        tile_data_addr = (lcdc & 0x08) ? 0x9C00 : 0x9800;
+    } else {
+        tile_data_addr = (lcdc & 0x40) ? 0x9C00 : 0x9800;
+    }
+
+    uint8_t y_pos = using_window ? (ly - wy) : (scy + ly);
+    uint16_t tile_row = (y_pos / 8) * 32;  // 32 tiles per row
+
+    for (size_t pixel = 0; pixel < 160; pixel++) {
+        uint8_t x_pos = pixel + scx;
+        
+        if (using_window && pixel >= wx) {
+            x_pos = pixel - wx;
+        }
+
+        uint16_t tile_col = x_pos / 8;
+        int16_t tile_num;
+        
+        // Read tile number from tile map
+        uint16_t tile_map_addr = tile_data_addr + tile_row + tile_col;
+        if (unsig) {
+            tile_num = (uint8_t)read_vram(gpu, tile_map_addr);
+        } else {
+            tile_num = (int8_t)read_vram(gpu, tile_map_addr);
+        }
+
+        // Calculate tile pattern address
+        uint16_t tile_location;
+        if (unsig) {
+            tile_location = tile_pattern_table + (tile_num * 16);
+        } else {
+            tile_location = tile_pattern_table + ((tile_num + 128) * 16);
+        }
+
+        // Get tile line data (2 bytes per line)
+        uint8_t line = (y_pos % 8) * 2;
+        uint8_t data1 = read_vram(gpu, tile_location + line);
+        uint8_t data2 = read_vram(gpu, tile_location + line + 1);
+
+        // Extract color bits
+        uint8_t bit_index = 7 - (x_pos % 8);
+        uint8_t color_index = ((data2 >> bit_index) & 1) << 1 |
+                            ((data1 >> bit_index) & 1);
+        
+        // Map to BGP palette
+        uint8_t mapped_color = (BGP(gpu) >> (color_index * 2)) & 0x03;
+
+        // Store in framebuffer (unchanged)
+        gpu->framebuffer[ly * SCREEN_WIDTH + pixel] = mapped_color;
+    }
+    */
+
     uint8_t lcdc = LCDC(gpu);
     const uint8_t ly = LY(gpu);
     uint16_t tile_data;
@@ -63,7 +145,7 @@ void render_tile(struct GPU *gpu) {
     bool use_signed_tiles = (lcdc & 0x10) == 0;
     bool window_rendered_this_line = false;
 
-
+    
     for (int pixel = 0; pixel < SCREEN_WIDTH; pixel++) {
         bool using_window = window_enabled && (ly >= wy) && (wx <= pixel);
         if (using_window) window_rendered_this_line = true;
@@ -79,20 +161,19 @@ void render_tile(struct GPU *gpu) {
 
         uint8_t tile_index = read_vram(gpu, tile_data + (y_pos / 8) * 32 + (x_pos / 8));
         tile_addr = memory_region + (use_signed_tiles ? (int8_t)tile_index + 128 : tile_index)*16;
-        /*
-        pixel# = 1 2 3 4 5 6 7 8
-        data 2 = 1 0 1 0 1 1 1 0
-        data 1 = 0 0 1 1 0 1 0 1
 
-        Pixel 1 colour id: 10
-        Pixel 2 colour id: 00
-        Pixel 3 colour id: 11
-        Pixel 4 colour id: 01
-        Pixel 5 colour id: 10
-        Pixel 6 colour id: 11
-        Pixel 7 colour id: 10
-        Pixel 8 colour id: 01
-        */
+        // pixel# = 1 2 3 4 5 6 7 8
+        // data 2 = 1 0 1 0 1 1 1 0
+        // data 1 = 0 0 1 1 0 1 0 1
+
+        // Pixel 1 colour id: 10
+        // Pixel 2 colour id: 00
+        // Pixel 3 colour id: 11
+        // Pixel 4 colour id: 01
+        // Pixel 5 colour id: 10
+        // Pixel 6 colour id: 11
+        // Pixel 7 colour id: 10
+        // Pixel 8 colour id: 01
 
         uint8_t line_in_tile = y_pos % 8;
         uint8_t data1 = read_vram(gpu, tile_addr + line_in_tile * 2);     // Low bit plane
@@ -108,6 +189,8 @@ void render_tile(struct GPU *gpu) {
     if (window_rendered_this_line) {
         gpu->window_line++;
     }
+    
+    
 }
 
 typedef struct {
@@ -125,7 +208,6 @@ int sprite_cmp(const void *a, const void *b) {
     // If X positions are the same, use index for priority
     if (s1->x != s2->x) return s2->x - s1->x;
     return s2->index - s1->index;
-
 }
 
 /*
@@ -180,7 +262,6 @@ void render_sprites(struct GPU *gpu) {
     // sort sprites by X position and then by index for priority
     qsort(to_draw, drawn, sizeof(SpriteInfo), sprite_cmp);
     for (size_t i = 0; i < drawn; i++) {
-        uint8_t base = to_draw[i].index * 4;
         uint8_t obp = (to_draw[i].flags & 0x10) ? OBP1(gpu) : OBP0(gpu); // Object Palette
 
         bool y_flip = (to_draw[i].flags & 0x40) != 0; // Y flip
