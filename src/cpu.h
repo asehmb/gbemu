@@ -176,7 +176,6 @@ static inline uint8_t READ_BYTE(struct CPU *cpu, uint16_t addr) {
 				// Mode 0: always use RAM bank 0
 				offset = addr - 0xA000;
 			}
-
 			// Bounds check
 			if (offset < cpu->bus.ram_size) {
 				return cpu->bus.cart_ram[offset];
@@ -186,12 +185,12 @@ static inline uint8_t READ_BYTE(struct CPU *cpu, uint16_t addr) {
 	}
 
 	if (0x8000 <= addr && addr < 0xA000) { // VRAM
-		// if (cpu->dma_transfer) {
-		// 	return cpu->bus.rom[addr];
-		// }
-		// if ((cpu->bus.rom[0xFF41] & 0x03) == 0x03) { // blocked in mode 3
-		// 	return 0xFF; // Return dummy value if VRAM is blocked
-		// }
+		if (cpu->dma_transfer) {
+			return cpu->bus.rom[addr];
+		}
+		if ((cpu->bus.rom[0xFF41] & 0x03) == 0x03) { // blocked in mode 3
+			return 0xFF; // Return dummy value if VRAM is blocked
+		}
 		return cpu->bus.rom[addr]; // Read from VRAM
 	}
 	if (0xFE00 <= addr && addr < 0xFEA0) { // OAM
@@ -213,7 +212,11 @@ static inline uint8_t READ_BYTE(struct CPU *cpu, uint16_t addr) {
 void dma_transfer(struct CPU *cpu, uint8_t value); // Ensure proper declaration of dma_transfer for WRITE_BYTE
 
 static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
-	if (cpu->bootrom_enabled && addr < 0x0100) {
+	if (cpu->bootrom_enabled && (addr < 0x0100 || (addr >= 0x8000 && addr < 0xA000))) {
+		if (0x8000 <= addr && addr < 0xA000) {
+			// Allow bootrom to write to VRAM
+			cpu->bus.rom[addr] = value;
+		}
 		cpu->bootrom[addr] = value;
 		return;
 	} else if (addr < 0x8000) {
@@ -345,10 +348,10 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 	} else if (addr < 0xFE00) { // Echo RAM (0xE000-0xFDFF)
 		cpu->bus.rom[addr - 0x2000] = value;
 	} else if (addr < 0xFEA0) { // OAM
-		// if (cpu->dma_transfer == true) {
-		// 	cpu->bus.rom[addr] = value;
-		// 	return;
-		// }
+		if (cpu->dma_transfer == true) {
+			cpu->bus.rom[addr] = value;
+			return;
+		}
 		uint8_t stat_mode = cpu->bus.rom[0xFF41] & 0x03;
 		if (stat_mode == 0x02 || stat_mode == 0x03) {
 			// Block writes in mode 2 and 3
