@@ -8,7 +8,7 @@ uint8_t inline read_vram(struct GPU *gpu, uint16_t addr) {
         fprintf(stderr, "VRAM access out of bounds: 0x%04X\n", addr);
         return 0; // Return 0 for out of bounds access
     }
-    return gpu->vram[addr];
+    return *(gpu->vram + addr); // vram is mapped to 0x8000-0x9FFF of the memory bus
 }
 
 void inline write_vram(struct GPU *gpu, uint16_t addr, uint8_t value) {
@@ -16,7 +16,7 @@ void inline write_vram(struct GPU *gpu, uint16_t addr, uint8_t value) {
         fprintf(stderr, "VRAM access out of bounds: 0x%04X\n", addr);
         return; // Ignore out of bounds writes
     }
-    gpu->vram[addr] = value; // vram is mapped to 0x8000-0x9FFF of the memory bus
+    *(gpu->vram + addr) = value; // vram is mapped to 0x8000-0x9FFF of the memory bus
 }
 
 void render_scanline(struct GPU *gpu, int line) {
@@ -24,8 +24,9 @@ void render_scanline(struct GPU *gpu, int line) {
     if (!(LCDC(gpu) & 0x80)) return;
     // Clear scanline to background color first
     uint8_t bg_color = (BGP(gpu) & 0x03); // Default color 0
+    uint8_t* row_ptr = gpu->framebuffer + line * SCREEN_WIDTH;
     for (int x = 0; x < SCREEN_WIDTH; x++) {
-        gpu->framebuffer[line * SCREEN_WIDTH + x] = bg_color;
+        *(row_ptr + x) = bg_color;
     }
     if ((LCDC(gpu) & 0x01) == 0x01) {
         // RENDER TILES

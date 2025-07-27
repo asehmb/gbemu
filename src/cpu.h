@@ -148,18 +148,18 @@ uint8_t read_joypad(struct CPU *cpu);
 
 static inline uint8_t READ_BYTE(struct CPU *cpu, uint16_t addr) {
 	if (cpu->bootrom_enabled && addr < 0x0100) {
-		return cpu->bootrom[addr];
+		return *(cpu->bootrom + addr);
 	}
 	if (addr == 0xFF00) {
 		return read_joypad(cpu);
 	}
 	if (cpu->bus.current_rom_bank && addr >= 0x4000 && addr < 0x8000) {
 		if (cpu->bus.mbc_type == 1 && cpu->bus.mbc1_mode) {
-			return cpu->bus.rom_banks[((cpu->bus.current_rom_bank & 0x1F) - 1)
-				* 0x4000 + (addr - 0x4000)];
+			return *(cpu->bus.rom_banks + ((cpu->bus.current_rom_bank & 0x1F) - 1)
+				* 0x4000 + (addr - 0x4000));
 		} else {
-			return cpu->bus.rom_banks[(cpu->bus.current_rom_bank - 1) * 0x4000 + 
-					(addr - 0x4000)];
+			return *(cpu->bus.rom_banks + (cpu->bus.current_rom_bank - 1) * 0x4000 + 
+					(addr - 0x4000));
 		}
 	}
 	if (0xA000 <= addr && addr < 0xC000) {
@@ -178,7 +178,7 @@ static inline uint8_t READ_BYTE(struct CPU *cpu, uint16_t addr) {
 			}
 			// Bounds check
 			if (offset < cpu->bus.ram_size) {
-				return cpu->bus.cart_ram[offset];
+				return *(cpu->bus.cart_ram + offset); // Read from cart RAM
 			}
 		}
 		return 0xFF;
@@ -186,27 +186,27 @@ static inline uint8_t READ_BYTE(struct CPU *cpu, uint16_t addr) {
 
 	if (0x8000 <= addr && addr < 0xA000) { // VRAM
 		if (cpu->dma_transfer) {
-			return cpu->bus.rom[addr];
+			return *(cpu->bus.rom + addr);
 		}
-		if ((cpu->bus.rom[0xFF41] & 0x03) == 0x03) { // blocked in mode 3
+		if ((*(cpu->bus.rom + 0xFF41) & 0x03) == 0x03) { // blocked in mode 3
 			return 0xFF; // Return dummy value if VRAM is blocked
 		}
-		return cpu->bus.rom[addr]; // Read from VRAM
+		return *(cpu->bus.rom + addr); // Read from VRAM
 	}
 	if (0xFE00 <= addr && addr < 0xFEA0) { // OAM
 		// if (cpu->dma_transfer == true) {
 		// 	return cpu->bus.rom[addr];
 		// }
-		uint8_t stat_mode = cpu->bus.rom[0xFF41] & 0x03;
+		uint8_t stat_mode = *(cpu->bus.rom + 0xFF41) & 0x03;
 		if (stat_mode == 0x02 || stat_mode == 0x03) {
 			return 0xFF; // Block reads in mode 2 and 3
 		}
-		return cpu->bus.rom[addr]; // Read from OAM
+		return *(cpu->bus.rom + addr); // Read from OAM
 	}
 	if (0xE000 <= addr && addr < 0xFE00) { // Echo RAM
-		return cpu->bus.rom[addr - 0x2000]; // Read from echo RAM
+		return *(cpu->bus.rom + (addr - 0x2000)); // Read from echo RAM
 	}
-	return cpu->bus.rom[addr];
+	return *(cpu->bus.rom + addr);
 }
 
 void dma_transfer(struct CPU *cpu, uint8_t value); // Ensure proper declaration of dma_transfer for WRITE_BYTE
@@ -215,9 +215,9 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 	if (cpu->bootrom_enabled && (addr < 0x0100 || (addr >= 0x8000 && addr < 0xA000))) {
 		if (0x8000 <= addr && addr < 0xA000) {
 			// Allow bootrom to write to VRAM
-			cpu->bus.rom[addr] = value;
+			*(cpu->bus.rom + addr) = value;
 		}
-		cpu->bootrom[addr] = value;
+		*(cpu->bootrom + addr) = value;
 		return;
 	} else if (addr < 0x8000) {
 		switch(cpu->bus.mbc_type) {
@@ -311,17 +311,17 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 				break;
 			}
 			default: /* Other MBCs */
-				cpu->bus.rom[addr] = value;
+				*(cpu->bus.rom + addr) = value; // Write to ROM
 				break;
 		}
 	} else if (addr < 0xA000) {
 		if (cpu->dma_transfer) {
-			cpu->bus.rom[addr] = value;
+			*(cpu->bus.rom + addr) = value;
 		}
-		if ((cpu->bus.rom[0xFF41] & 0x03) == 0x03) { // blocked in mode 3
+		if ((*(cpu->bus.rom + 0xFF41) & 0x03) == 0x03) { // blocked in mode 3
 			return; // Return dummy value if VRAM is blocked
 		}
-		cpu->bus.rom[addr] = value;
+		*(cpu->bus.rom + addr) = value;
 	} else if (addr < 0xC000) {
 		/* Write to cartridge RAM if enabled */
 		if (cpu->bus.ram_enabled && cpu->bus.cart_ram) {
@@ -340,49 +340,49 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 
 			// Bounds check
 			if (offset < cpu->bus.ram_size) {
-				cpu->bus.cart_ram[offset] = value;
+				*(cpu->bus.cart_ram + offset) = value;
 			}
 		}
 	} else if (addr < 0xE000) { // WRAM
-		cpu->bus.rom[addr] = value; // Write to WRAM
+		*(cpu->bus.rom + addr) = value; // Write to WRAM
 	} else if (addr < 0xFE00) { // Echo RAM (0xE000-0xFDFF)
-		cpu->bus.rom[addr - 0x2000] = value;
+		*(cpu->bus.rom + (addr - 0x2000)) = value;
 	} else if (addr < 0xFEA0) { // OAM
 		if (cpu->dma_transfer == true) {
-			cpu->bus.rom[addr] = value;
+			*(cpu->bus.rom + addr) = value;
 			return;
 		}
-		uint8_t stat_mode = cpu->bus.rom[0xFF41] & 0x03;
+		uint8_t stat_mode = *(cpu->bus.rom + 0xFF41) & 0x03;
 		if (stat_mode == 0x02 || stat_mode == 0x03) {
 			// Block writes in mode 2 and 3
 			return;
 		}
-		cpu->bus.rom[addr] = value;
+		*(cpu->bus.rom + addr) = value;
 	} else if (addr == 0xFF0F) { /* Interrupt Flag */
-		cpu->bus.rom[addr] = value | 0xE0; /* Only lower 5 bits are used */
+		*(cpu->bus.rom + addr) = value | 0xE0; /* Only lower 5 bits are used */
 	} else if (addr == 0xFF50) { /* Bootrom */
 		if (cpu->bootrom_enabled) {
 			printf("Boot ROM disabled by write to 0xFF50 with value 0x%02X\n", value);
 		}
 		cpu->bootrom_enabled = false; /* Any write to 0xFF50 disables the bootrom */
 	} else if (addr == 0xFF04) { /* DIV reset */
-		cpu->bus.rom[addr] = 0;
+		*(cpu->bus.rom + addr) = 0;
 		cpu->divider_cycles = 0;
 	} else if (addr == 0xFF42 || addr == 0xFF43) {
-		uint8_t stat_mode = cpu->bus.rom[0xFF41] & 0x03;
+		uint8_t stat_mode = *(cpu->bus.rom + 0xFF41) & 0x03;
 		if (stat_mode == 0x03) {
 			return;
 		}
-		cpu->bus.rom[addr] = value; // Write to SC registers 
+		*(cpu->bus.rom + addr) = value; // Write to SC registers
 	} else if (addr == 0xFF46) { /*DMA transfer*/
 		dma_transfer(cpu, value);
-		cpu->bus.rom[addr] = value;
+		*(cpu->bus.rom + addr) = value;
 	} else if (addr == 0xFF00) { /* P1 register */
 		/* Update joypad state */
-		cpu->bus.rom[addr] = (cpu->bus.rom[0xFF00] & 0xCF) | (value & 0x30);
+		*(cpu->bus.rom + addr) = (*(cpu->bus.rom + 0xFF00) & 0xCF) | (value & 0x30);
 	} else {
 		// rest of the I/O registers/HRAM
-		cpu->bus.rom[addr] = value;
+		*(cpu->bus.rom + addr) = value;
 	}
 }
 
