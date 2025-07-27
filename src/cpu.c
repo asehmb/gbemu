@@ -7,18 +7,18 @@ void dma_transfer(struct CPU *cpu, uint8_t value) {
     cpu->dma_transfer = true; // Set DMA transfer flag
     uint16_t source = value << 8;
     #ifdef LOGGING
-    if (source == 0xC300) {
-        // dump ram
-        LOG("Dumping RAM at 0x%04X\n", source);
-        for (int i = 0; i < 0x100; i++) {
-            if (i % 16 == 0) {
-                LOG("\n%04X: ", i);
-            }
-            LOG("%02X ", READ_BYTE(cpu, source + i));
-        }
-        LOG("\n");
+    // if (source == 0xC300) {
+    //     // dump ram
+    //     LOG("Dumping RAM at 0x%04X\n", source);
+    //     for (int i = 0; i < 0x100; i++) {
+    //         if (i % 16 == 0) {
+    //             LOG("\n%04X: ", i);
+    //         }
+    //         LOG("%02X ", READ_BYTE(cpu, source + i));
+    //     }
+    //     LOG("\n");
 
-    }
+    // }
     #endif
 
     for (int i = 0; i < 160; i++) {

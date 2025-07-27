@@ -299,8 +299,8 @@ int main(int argc, char *argv[]) {
             //             fprintf(memory_dump, "%02X ", READ_BYTE_DEBUG(&cpu, i));
             //         }
             //     }
-            //     if (GET_BC(&cpu) == 16)
-            //         printf("CURRENT RAM BANK: %d\n", cpu.bus.current_ram_bank);
+                if (cpu.bus.current_rom_bank == 0)
+                    printf("CURRENT ROM BANK: %d\n", cpu.bus.current_rom_bank);
             // }
             // LOG("CURRENT ROM BANK: %d\n", cpu.bus.current_rom_bank);
             do {

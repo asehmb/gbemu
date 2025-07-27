@@ -86,7 +86,7 @@ int load_rom(struct CPU *cpu, const char *filename) {
         return -1;
     }
 
-    if (fread(cpu->bus.rom, 0x8000,1, file) != 1) {
+    if (fread(cpu->bus.rom, 0x4000,1, file) != 1) {
         fprintf(stderr, "Failed to read ROM data\n");
         fclose(file);
         return -1;
@@ -95,29 +95,25 @@ int load_rom(struct CPU *cpu, const char *filename) {
 
     int num_banks = rom_size(cpu->bus.rom); // Number of 16KB ROM banks
     // return if rom is only 32KB
-    cpu->bus.num_rom_banks = num_banks; // Exclude the first two banks (header and first 32KB)
+    cpu->bus.num_rom_banks = num_banks;
 
-    if (num_banks == 2) {
-        cpu->bus.rom_banking_toggle = false;
-        cpu->bus.current_rom_bank = 0; // just use the first bank
-    } else {
-        // Load the rest of the rom into RAM (probably should be renamed)
-        cpu->bus.rom_banks = malloc((num_banks - 2) * 0x4000); //when reading from ram account for 0x8000 missing (32KB)
-        if (!cpu->bus.rom_banks) {
-            fprintf(stderr, "Failed to allocate memory for RAM\n");
-            fclose(file);
-            return -1;
-        }
-        if (fread(cpu->bus.rom_banks, 1, (num_banks - 2) * 0x4000, file) != (num_banks - 2) * 0x4000) {
-            fprintf(stderr, "Failed to read RAM data\n");
-            free(cpu->bus.rom_banks);
-            fclose(file);
-            return -1;
-        }
-        cpu->bus.rom_size = num_banks * 0x4000;
-        cpu->bus.rom_banking_toggle = true; // Enable banking for MBCs that support it
-        cpu->bus.current_rom_bank = 1;
+
+    cpu->bus.rom_banks = malloc((num_banks - 1) * 0x4000); //when reading from ram account for 0x8000 missing (32KB)
+    if (!cpu->bus.rom_banks) {
+        fprintf(stderr, "Failed to allocate memory for ROM BANKS\n");
+        fclose(file);
+        return -1;
     }
+    if (fread(cpu->bus.rom_banks, 1, (num_banks - 1) * 0x4000, file) != (num_banks - 1) * 0x4000) {
+        fprintf(stderr, "Failed to read ROM BANKS data\n");
+        free(cpu->bus.rom_banks);
+        fclose(file);
+        return -1;
+    }
+    cpu->bus.rom_size = num_banks * 0x4000;
+    cpu->bus.rom_banking_toggle = true; // Enable banking for MBCs that support it
+    cpu->bus.current_rom_bank = 1;
+
     LOG("ROM loaded: %s, type: 0x%02X, size: %d banks (%d KB)\n",
         filename, cpu->bus.mbc_type, num_banks, num_banks * 16);
 

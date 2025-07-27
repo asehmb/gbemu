@@ -64,8 +64,8 @@ struct MemoryBus {
 	bool rom_banking_toggle; // Use ROM banking for MBCs that support it
 	bool ram_enabled; // Use RAM banking for MBCs that support it
 	uint8_t mbc1_mode;
-	uint8_t rom_bank_high;
-	uint8_t rom_bank_low;
+	uint8_t rom_bank_hi;
+	uint8_t rom_bank_lo;
 	uint8_t mbc_type;
 	uint8_t num_ram_banks;
 	uint8_t num_rom_banks;
@@ -154,20 +154,13 @@ static inline uint8_t READ_BYTE(struct CPU *cpu, uint16_t addr) {
 		return read_joypad(cpu);
 	}
 	if (cpu->bus.current_rom_bank && addr >= 0x4000 && addr < 0x8000) {
-		// if (cpu->bus.mbc_type == 1 && cpu->bus.mbc1_mode) {
-		// 	if (cpu->bus.current_rom_bank == 1) {
-		// 		return cpu->bus.rom[addr];
-		// 	} else {
-		// 		return cpu->bus.rom_banks[((cpu->bus.current_rom_bank & 0x1F)-3) * 0x4000 + (addr - 0x4000)];
-		// 	}
-		// } else {
-			if (cpu->bus.current_rom_bank == 1) {
-				return cpu->bus.rom[addr];
-			} else {
-				return cpu->bus.rom_banks[(cpu->bus.current_rom_bank - 2) * 0x4000 + 
+		if (cpu->bus.mbc_type == 1 && cpu->bus.mbc1_mode) {
+			return cpu->bus.rom_banks[((cpu->bus.current_rom_bank & 0x1F) - 1)
+				* 0x4000 + (addr - 0x4000)];
+		} else {
+			return cpu->bus.rom_banks[(cpu->bus.current_rom_bank - 1) * 0x4000 + 
 					(addr - 0x4000)];
-			}
-		// }
+		}
 	}
 	if (0xA000 <= addr && addr < 0xC000) {
 		if (cpu->bus.ram_enabled && cpu->bus.cart_ram) {
@@ -226,30 +219,43 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 	} else if (addr < 0x8000) {
 		switch(cpu->bus.mbc_type) {
 			case 1: { // MBC1
-				if (addr < 0x2000) { // RAM enable/disable
-					cpu->bus.ram_enabled = ((value & 0x0F) == 0x0A) ? true : false;
-				} else if (addr < 0x4000) { // ROM bank lower 5 bits
-					uint8_t lower = (value & 0x1F) | (cpu->bus.current_rom_bank & 0x60);
-					if (lower == 0) lower = 1;
-					cpu->bus.current_rom_bank = lower;
-				} else if (addr < 0x6000) { // ROM bank upper or RAM bank number
-					uint8_t upper = value & 0x03;
+				if (addr < 0x2000) {
+					cpu->bus.ram_enabled = ((value & 0x0F) == 0x0A);
+				} else if (addr < 0x4000) {
+					cpu->bus.rom_bank_lo = value & 0x1F;
+					if ((cpu->bus.rom_bank_lo & 0x1F) == 0) {
+						cpu->bus.rom_bank_lo = 1; // only if lower bits are 0
+					}
+				} else if (addr < 0x6000) {
+					cpu->bus.rom_bank_hi = value & 0x03;
 					if (cpu->bus.mbc1_mode == 0) {
-						// ROM banking mode: upper affects ROM only
-						cpu->bus.current_rom_bank = (upper << 5) | (cpu->bus.current_rom_bank & 0x1F);
-						cpu->bus.current_ram_bank = 0; // RAM bank locked to 0
+						cpu->bus.current_ram_bank = 0;
 					} else {
-						// RAM banking mode: upper affects RAM only
-						cpu->bus.current_ram_bank = upper & 0x03;
-						// ROM bank is only lower 5 bits
-						cpu->bus.current_rom_bank &= 0x1F;
+						cpu->bus.current_ram_bank = cpu->bus.rom_bank_hi;
+					}
+				} else if (addr < 0x8000) {
+					cpu->bus.mbc1_mode = value & 0x01;
+				}
+				
+				// Always update the final bank after any change
+				if (cpu->bus.mbc1_mode == 0) {
+					// ROM banking mode
+					cpu->bus.current_rom_bank = (cpu->bus.rom_bank_hi << 5) | (cpu->bus.rom_bank_lo & 0x1F);
+					if (cpu->bus.current_rom_bank == 0) {
+						cpu->bus.current_rom_bank = 1;
 					}
 					cpu->bus.current_rom_bank %= cpu->bus.num_rom_banks;
-				} else if (addr < 0x8000) { // Banking mode select
-					cpu->bus.mbc1_mode = value & 0x01;
+				} else {
+					// RAM banking mode — upper bits ignored
+					cpu->bus.current_rom_bank = cpu->bus.rom_bank_lo & 0x1F;
+					if (cpu->bus.current_rom_bank == 0) {
+						cpu->bus.current_rom_bank = 1;
+					}
+					cpu->bus.current_rom_bank %= cpu->bus.num_rom_banks;
 				}
 				return;
 			}
+
 			case 3: /* MBC3 */
 			{
 				if (addr < 0x2000) { /* RAM/RTC enable */
