@@ -258,7 +258,6 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 				}
 				return;
 			}
-
 			case 3: /* MBC3 */
 			{
 				if (addr < 0x2000) { /* RAM/RTC enable */
@@ -277,11 +276,8 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 				} else if (addr < 0x6000) { /* RAM bank or RTC register select (0x4000-0x5FFF) */
 					if (value <= 0x07) {
 						/* Ensure RAM bank is valid */
-						if (cpu->bus.ram_size > 0) {
-							uint8_t num_ram_banks = cpu->bus.ram_size / 0x2000;
-							if (num_ram_banks > 0) {
-								cpu->bus.current_ram_bank = value %num_ram_banks;
-							}
+						if (cpu->bus.num_ram_banks) {
+							cpu->bus.current_ram_bank = value % cpu->bus.num_ram_banks;
 						}
 					} else if (value >= 0x08 && value <= 0x0C) {
 						// RTC register select (not implemented)
@@ -311,7 +307,7 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 				break;
 			}
 			default: /* Other MBCs */
-				*(cpu->bus.rom + addr) = value; // Write to ROM
+				// *(cpu->bus.rom + addr) = value; // Writes to ROM are NOT allowed
 				break;
 		}
 	} else if (addr < 0xA000) {
