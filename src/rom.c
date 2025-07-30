@@ -85,7 +85,7 @@ int load_rom(struct CPU *cpu, const char *filename) {
         perror("Failed to open ROM file");
         return -1;
     }
-
+    // bank 0
     if (fread(cpu->bus.rom, 0x4000,1, file) != 1) {
         fprintf(stderr, "Failed to read ROM data\n");
         fclose(file);
@@ -97,8 +97,8 @@ int load_rom(struct CPU *cpu, const char *filename) {
     // return if rom is only 32KB
     cpu->bus.num_rom_banks = num_banks;
 
-
-    cpu->bus.rom_banks = malloc((num_banks - 1) * 0x4000); //when reading from ram account for 0x8000 missing (32KB)
+    // bank 01 - nn
+    cpu->bus.rom_banks = malloc((num_banks - 1) * 0x4000); //when reading from ram account for 0x4000 missing (16KB)
     if (!cpu->bus.rom_banks) {
         fprintf(stderr, "Failed to allocate memory for ROM BANKS\n");
         fclose(file);
@@ -116,7 +116,8 @@ int load_rom(struct CPU *cpu, const char *filename) {
 
     LOG("ROM loaded: %s, type: 0x%02X, size: %d banks (%d KB)\n",
         filename, cpu->bus.mbc_type, num_banks, num_banks * 16);
-
+    
+    // Initialize RAM
     size_t ram_sizes[] = {
         0,       // 0x00: no RAM
         2 * 1024,  // 0x01: 2 KB

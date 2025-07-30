@@ -139,7 +139,7 @@ void render_tile(struct GPU *gpu) {
 
     uint8_t scx = SCX(gpu);
     uint8_t scy = SCY(gpu);
-    uint8_t wx = WX(gpu) - 7;
+    int8_t wx = WX(gpu) - 7;
     uint8_t wy = WY(gpu);
 
     uint16_t memory_region = (lcdc & 0x10) ? 0x8000 : 0x8800;

@@ -88,6 +88,7 @@ struct CPU {
 	uint8_t p1_actions; // joypad actions (buttons)
 	uint8_t p1_directions; // joypad directions (up, down, left, right)
 	bool dma_transfer; // DMA transfer flag
+	uint8_t selected_rtc_register; // Currently selected RTC register (0x08-0x0C for MBC3)
 };
 
 /* MACROS FOR QUICK ACCESS */
@@ -163,22 +164,35 @@ static inline uint8_t READ_BYTE(struct CPU *cpu, uint16_t addr) {
 		}
 	}
 	if (0xA000 <= addr && addr < 0xC000) {
-		if (cpu->bus.ram_enabled && cpu->bus.cart_ram) {
-			size_t offset;
-
-			if (cpu->bus.ram_size <= 0x2000) {
-				// 2KB or 8KB RAM: wrap around using modulo
-				offset = (addr - 0xA000) % cpu->bus.ram_size;
-			} else if (cpu->bus.mbc1_mode == 1 && cpu->bus.ram_size >= 0x8000) {
-				// Mode 1, 32KB RAM: support 4 banks
-				offset = (cpu->bus.current_ram_bank * 0x2000) + (addr - 0xA000);
-			} else {
-				// Mode 0: always use RAM bank 0
-				offset = addr - 0xA000;
+		if (cpu->bus.ram_enabled) {
+			/* Check if MBC3 has an RTC register selected */
+			if (cpu->bus.mbc_type == 3 && (cpu->bus.current_ram_bank >= 0x08)) {
+				/* Return RTC register value (not implemented - return 0 for now) */
+				printf("RTC register read not implemented, returning 0xFF\n");
+				return 0xFF; // Placeholder for RTC register reads
 			}
-			// Bounds check
-			if (offset < cpu->bus.ram_size) {
-				return *(cpu->bus.cart_ram + offset); // Read from cart RAM
+			
+			/* Regular cartridge RAM access */
+			if (cpu->bus.cart_ram) {
+				uint16_t offset;
+				if (cpu->bus.mbc_type == 1){
+					if (cpu->bus.ram_size <= 0x2000) {
+						// 2KB or 8KB RAM: wrap around using modulo
+						offset = (addr - 0xA000) % cpu->bus.ram_size;
+					} else if (cpu->bus.mbc1_mode == 1 && cpu->bus.ram_size >= 0x8000) {
+						// Mode 1, 32KB RAM: support 4 banks
+						offset = (cpu->bus.current_ram_bank * 0x2000) + (addr - 0xA000);
+					} else {
+						// Mode 0: always use RAM bank 0
+						offset = addr - 0xA000;
+					}
+				} else {
+					offset = (cpu->bus.current_ram_bank * 0x2000) + (addr - 0xA000);
+				}
+				// Bounds check
+				if (offset < cpu->bus.ram_size) {
+					return *(cpu->bus.cart_ram + offset); // Read from cart RAM
+				}
 			}
 		}
 		return 0xFF;
@@ -274,14 +288,7 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 						if (cpu->bus.current_rom_bank == 0) cpu->bus.current_rom_bank = 1;
 					}
 				} else if (addr < 0x6000) { /* RAM bank or RTC register select (0x4000-0x5FFF) */
-					if (value <= 0x07) {
-						/* Ensure RAM bank is valid */
-						if (cpu->bus.num_ram_banks) {
-							cpu->bus.current_ram_bank = value % cpu->bus.num_ram_banks;
-						}
-					} else if (value >= 0x08 && value <= 0x0C) {
-						// RTC register select (not implemented)
-					}
+					cpu->bus.current_ram_bank = value; // 0-3 for RAM banks, 8-12 for RTC registers
 				} else if (addr < 0x8000) { /* RTC latch (0x6000-0x7FFF) */
 					/* Latch RTC data on 0->1 transition */
 					static uint8_t prev_value = 0;
@@ -319,24 +326,37 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 		}
 		*(cpu->bus.rom + addr) = value;
 	} else if (addr < 0xC000) {
-		/* Write to cartridge RAM if enabled */
-		if (cpu->bus.ram_enabled && cpu->bus.cart_ram) {
-			size_t offset;
-
-			if (cpu->bus.ram_size <= 0x2000) {
-				// 2KB or 8KB RAM: wrap around using modulo
-				offset = (addr - 0xA000) % cpu->bus.ram_size;
-			} else if (cpu->bus.mbc1_mode == 1 && cpu->bus.ram_size >= 0x8000) {
-				// Mode 1, 32KB RAM: support 4 banks
-				offset = (cpu->bus.current_ram_bank * 0x2000) + (addr - 0xA000);
-			} else {
-				// Mode 0: always use RAM bank 0
-				offset = addr - 0xA000;
+		/* Write to cartridge RAM or RTC registers if enabled */
+		if (cpu->bus.ram_enabled) {
+			/* Check if MBC3 has an RTC register selected */
+			if (cpu->bus.mbc_type == 3 && cpu->selected_rtc_register >= 0x08 && cpu->selected_rtc_register <= 0x0C) {
+				/* Write to RTC register (not implemented - ignore for now) */
+				return;
 			}
+			
+			/* Regular cartridge RAM write */
+			if (cpu->bus.cart_ram) {
+				uint16_t offset;
+				if (cpu->bus.mbc_type == 1){
+					if (cpu->bus.ram_size <= 0x2000) {
+						// 2KB or 8KB RAM: wrap around using modulo
+						offset = (addr - 0xA000) % cpu->bus.ram_size;
+					} else if (cpu->bus.mbc1_mode == 1 && cpu->bus.ram_size >= 0x8000) {
+						// Mode 1, 32KB RAM: support 4 banks
+						offset = (cpu->bus.current_ram_bank * 0x2000) + (addr - 0xA000);
+					} else {
+						// Mode 0: always use RAM bank 0
+						offset = addr - 0xA000;
+					}
+				} else {
+					offset = (cpu->bus.current_ram_bank * 0x2000) + (addr - 0xA000);
+				}
 
-			// Bounds check
-			if (offset < cpu->bus.ram_size) {
-				*(cpu->bus.cart_ram + offset) = value;
+				// Bounds check
+				if (offset < cpu->bus.ram_size) {
+					*(cpu->bus.cart_ram + offset) = value;
+				}
+				return;
 			}
 		}
 	} else if (addr < 0xE000) { // WRAM
