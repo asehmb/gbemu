@@ -148,7 +148,7 @@ int main(int argc, char *argv[]) {
         cJSON *final_h = cJSON_GetObjectItem(final, "h");
         cJSON *final_l = cJSON_GetObjectItem(final, "l");
         cJSON *final_ime = cJSON_GetObjectItem(final, "ime");
-        if (final_pc->valueint == 0xFF01) {
+        if (final_pc->valueint == 0xCF08) {
             // breakpoint
         }
 

@@ -4,6 +4,51 @@ CC = clang
 # BASE_CFLAGS = -O2 -march=native -flto -DNDEBUG -Wall -pthread -I$(SRC_DIR)
 BASE_CFLAGS = -g -O0 -march=native -Wall -pthread -I$(SRC_DIR)
 
+# Platform detection
+UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
+
+# Platform-specific settings
+ifeq ($(UNAME_S),Linux)
+    # Linux settings
+    PKG_CONFIG ?= pkg-config
+    SDL2_CFLAGS := $(shell $(PKG_CONFIG) --cflags sdl2 2>/dev/null || echo "-I/usr/include/SDL2")
+    SDL2_LDFLAGS := $(shell $(PKG_CONFIG) --libs sdl2 2>/dev/null || echo "-lSDL2 -lSDL2main")
+    CJSON_CFLAGS := $(shell $(PKG_CONFIG) --cflags libcjson 2>/dev/null || echo "")
+    CJSON_LDFLAGS := $(shell $(PKG_CONFIG) --libs libcjson 2>/dev/null || echo "-lcjson")
+    PROFILER_LDFLAGS := 
+else ifeq ($(UNAME_S),Darwin)
+    # macOS settings
+    ifeq ($(UNAME_M),arm64)
+        # Apple Silicon
+        HOMEBREW_PREFIX := /opt/homebrew
+    else
+        # Intel Mac
+        HOMEBREW_PREFIX := /usr/local
+    endif
+    SDL2_CFLAGS := -I$(HOMEBREW_PREFIX)/include/SDL2
+    SDL2_LDFLAGS := -L$(HOMEBREW_PREFIX)/lib -lSDL2 -lSDL2main
+    CJSON_CFLAGS := -I$(HOMEBREW_PREFIX)/include/cjson
+    CJSON_LDFLAGS := -L$(HOMEBREW_PREFIX)/lib -lcjson
+    PROFILER_LDFLAGS := -lprofiler
+else ifeq ($(UNAME_S),MINGW64_NT-10.0)
+    # Windows (MSYS2/MinGW)
+    PKG_CONFIG ?= pkg-config
+    SDL2_CFLAGS := $(shell $(PKG_CONFIG) --cflags sdl2 2>/dev/null || echo "-I/mingw64/include/SDL2")
+    SDL2_LDFLAGS := $(shell $(PKG_CONFIG) --libs sdl2 2>/dev/null || echo "-lSDL2 -lSDL2main")
+    CJSON_CFLAGS := $(shell $(PKG_CONFIG) --cflags libcjson 2>/dev/null || echo "")
+    CJSON_LDFLAGS := $(shell $(PKG_CONFIG) --libs libcjson 2>/dev/null || echo "-lcjson")
+    PROFILER_LDFLAGS :=
+else
+    # Default/unknown platform - try pkg-config first, fallback to standard locations
+    PKG_CONFIG ?= pkg-config
+    SDL2_CFLAGS := $(shell $(PKG_CONFIG) --cflags sdl2 2>/dev/null || echo "-I/usr/include/SDL2")
+    SDL2_LDFLAGS := $(shell $(PKG_CONFIG) --libs sdl2 2>/dev/null || echo "-lSDL2 -lSDL2main")
+    CJSON_CFLAGS := $(shell $(PKG_CONFIG) --cflags libcjson 2>/dev/null || echo "")
+    CJSON_LDFLAGS := $(shell $(PKG_CONFIG) --libs libcjson 2>/dev/null || echo "-lcjson")
+    PROFILER_LDFLAGS :=
+endif
+
 # Directories
 SRC_DIR = src
 BUILD_DIR = build
@@ -19,21 +64,21 @@ SM83_OBJ_FILES = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%_sm83.o, $(SRC_FILES))
 # SDL target
 SDL_DIR = sdl
 SDL_TARGET = $(SDL_DIR)/gbemu
-SDL_CFLAGS = $(BASE_CFLAGS) -I/opt/homebrew/include/SDL2
-SDL_LDFLAGS = -L/opt/homebrew/lib -lSDL2 -lSDL2main -lprofiler
+SDL_CFLAGS = $(BASE_CFLAGS) $(SDL2_CFLAGS)
+SDL_LDFLAGS = $(SDL2_LDFLAGS) $(PROFILER_LDFLAGS)
 SDL_MAIN_OBJ = $(BUILD_DIR)/sdl_main.o
 
 # Terminal/CLI target (example for future)
 CLI_DIR = cli
 CLI_TARGET = $(CLI_DIR)/gbemu
 CLI_CFLAGS = $(BASE_CFLAGS)
-CLI_LDFLAGS = -lprofiler
+CLI_LDFLAGS = $(PROFILER_LDFLAGS)
 CLI_MAIN_OBJ = $(BUILD_DIR)/cli_main.o
 
 SM83_DIR = sm83_tester
 SM83_TARGET = $(SM83_DIR)/gbemu
-SM83_CFLAGS = $(BASE_CFLAGS) -I/opt/homebrew/include/cjson
-SM83_LDFLAGS = -lprofiler -L/opt/homebrew/lib -lcjson
+SM83_CFLAGS = $(BASE_CFLAGS) $(CJSON_CFLAGS)
+SM83_LDFLAGS = $(PROFILER_LDFLAGS) $(CJSON_LDFLAGS)
 SM83_MAIN_OBJ = $(BUILD_DIR)/sm83_tester.o
 
 .PHONY: all clean sdl cli sm83 available-targets help

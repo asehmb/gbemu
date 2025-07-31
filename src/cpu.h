@@ -154,9 +154,8 @@ static inline uint8_t READ_BYTE(struct CPU *cpu, uint16_t addr) {
 	if (addr == 0xFF00) {
 		#ifdef ALLOW_ROM_WRITES
 		return *(cpu->bus.rom + addr);
-		#else
-		return read_joypad(cpu);
 		#endif
+		return read_joypad(cpu);
 	}
 	if (cpu->bus.current_rom_bank && addr >= 0x4000 && addr < 0x8000) {
 		if (cpu->bus.mbc_type == 1 && cpu->bus.mbc1_mode) {
@@ -222,6 +221,9 @@ static inline uint8_t READ_BYTE(struct CPU *cpu, uint16_t addr) {
 		return *(cpu->bus.rom + addr); // Read from OAM
 	}
 	if (0xE000 <= addr && addr < 0xFE00) { // Echo RAM
+		#ifdef ALLOW_ROM_WRITES
+		return *(cpu->bus.rom + addr);
+		#endif
 		return *(cpu->bus.rom + (addr - 0x2000)); // Read from echo RAM
 	}
 	return *(cpu->bus.rom + addr);
@@ -373,8 +375,13 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 	} else if (addr < 0xE000) { // WRAM
 		*(cpu->bus.rom + addr) = value; // Write to WRAM
 	} else if (addr < 0xFE00) { // Echo RAM (0xE000-0xFDFF)
+		#ifdef ALLOW_ROM_WRITES
+		*(cpu->bus.rom + addr) = value;
+		return;
+		#endif
 		*(cpu->bus.rom + (addr - 0x2000)) = value;
 	} else if (addr < 0xFEA0) { // OAM
+		
 		if (cpu->dma_transfer == true) {
 			*(cpu->bus.rom + addr) = value;
 			return;
