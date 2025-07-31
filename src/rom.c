@@ -1,5 +1,6 @@
 
 #include "rom.h"
+#include <stdio.h>
 
 uint8_t rom_init(struct MemoryBus *bus) {
 
@@ -84,8 +85,8 @@ int load_rom(struct CPU *cpu, const char *filename) {
         perror("Failed to open ROM file");
         return -1;
     }
-
-    if (fread(cpu->bus.rom, 0x8000,1, file) != 1) {
+    // bank 0
+    if (fread(cpu->bus.rom, 0x4000,1, file) != 1) {
         fprintf(stderr, "Failed to read ROM data\n");
         fclose(file);
         return -1;
@@ -94,32 +95,29 @@ int load_rom(struct CPU *cpu, const char *filename) {
 
     int num_banks = rom_size(cpu->bus.rom); // Number of 16KB ROM banks
     // return if rom is only 32KB
-    cpu->bus.num_rom_banks = num_banks - 2; // Exclude the first two banks (header and first 32KB)
+    cpu->bus.num_rom_banks = num_banks;
 
-    if (num_banks == 2) {
-        cpu->bus.banking = false;
-        cpu->bus.current_rom_bank = 0; // just use the first bank
-        return 0;
-    }
-
-    // Load the rest of the rom into RAM (probably should be renamed)
-    cpu->bus.rom_banks = malloc((num_banks - 2) * 0x4000); //when reading from ram account for 0x8000 missing (32KB)
+    // bank 01 - nn
+    cpu->bus.rom_banks = malloc((num_banks - 1) * 0x4000); //when reading from ram account for 0x4000 missing (16KB)
     if (!cpu->bus.rom_banks) {
-        fprintf(stderr, "Failed to allocate memory for RAM\n");
+        fprintf(stderr, "Failed to allocate memory for ROM BANKS\n");
         fclose(file);
         return -1;
     }
-
-    if (fread(cpu->bus.rom_banks, 1, (num_banks - 2) * 0x4000, file) != (num_banks - 2) * 0x4000) {
-        fprintf(stderr, "Failed to read RAM data\n");
+    if (fread(cpu->bus.rom_banks, 1, (num_banks - 1) * 0x4000, file) != (num_banks - 1) * 0x4000) {
+        LOG(stderr, "Failed to read ROM BANKS data\n");
         free(cpu->bus.rom_banks);
         fclose(file);
         return -1;
     }
     cpu->bus.rom_size = num_banks * 0x4000;
-    cpu->bus.banking = true; // Enable banking for MBCs that support it
+    cpu->bus.rom_banking_toggle = true; // Enable banking for MBCs that support it
     cpu->bus.current_rom_bank = 1;
 
+    LOG("ROM loaded: %s, type: 0x%02X, size: %d banks (%d KB)\n",
+        filename, cpu->bus.mbc_type, num_banks, num_banks * 16);
+    
+    // Initialize RAM
     size_t ram_sizes[] = {
         0,       // 0x00: no RAM
         2 * 1024,  // 0x01: 2 KB
@@ -141,11 +139,12 @@ int load_rom(struct CPU *cpu, const char *filename) {
 
     cpu->bus.cart_ram = NULL;
     cpu->bus.ram_size = cart_ram_size;
+    LOG("RAM SIZE: %zu bytes\n", cart_ram_size);
 
     if (cart_ram_size > 0) {
         cpu->bus.cart_ram = malloc(cart_ram_size);
         if (!cpu->bus.cart_ram) {
-            fprintf(stderr, "Failed to allocate cartridge RAM\n");
+            LOG(stderr, "Failed to allocate cartridge RAM\n");
             // handle error or exit
         }
     }
@@ -157,7 +156,7 @@ int load_rom(struct CPU *cpu, const char *filename) {
 int load_bootrom(struct CPU *cpu, const char *filename) {
     FILE *file = fopen(filename, "rb");
     if (!file) {
-        perror("Failed to open bootrom file");
+        LOG("Failed to open bootrom file");
         return -1;
     }
 
@@ -166,7 +165,7 @@ int load_bootrom(struct CPU *cpu, const char *filename) {
     fclose(file);
 
     if (read != 256) {
-        fprintf(stderr, "Boot ROM size incorrect (read %zu bytes, expected 256)\n", read);
+        LOG(stderr, "Boot ROM size incorrect (read %zu bytes, expected 256)\n", read);
         return -1;
     }
 

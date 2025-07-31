@@ -6,12 +6,27 @@
 void dma_transfer(struct CPU *cpu, uint8_t value) {
     cpu->dma_transfer = true; // Set DMA transfer flag
     uint16_t source = value << 8;
+    #ifdef LOGGING
+    // if (source == 0xC300) {
+    //     // dump ram
+    //     LOG("Dumping RAM at 0x%04X\n", source);
+    //     for (int i = 0; i < 0x100; i++) {
+    //         if (i % 16 == 0) {
+    //             LOG("\n%04X: ", i);
+    //         }
+    //         LOG("%02X ", READ_BYTE(cpu, source + i));
+    //     }
+    //     LOG("\n");
+
+    // }
+    #endif
 
     for (int i = 0; i < 160; i++) {
         uint8_t data = READ_BYTE(cpu, source + i);
         WRITE_BYTE(cpu, 0xFE00+i, data);
     }
     cpu->dma_transfer = false; // Clear DMA transfer flag
+    // LOG("DMA transfer completed from %04X to OAM\n", source);
 }
 
 uint8_t read_joypad(struct CPU *cpu) {
@@ -494,11 +509,16 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0x2D: // DEC L
-            SET_L(cpu, DEC(GET_L(cpu)));
-            cpu->f.zero = (GET_L(cpu) == 0);
-            cpu->f.half_carry = ((GET_L(cpu) + 1) & 0x0F) == 0x00; // Check half carry
-            cpu->f.subtraction = true; // N flag is set for DEC
+        {
+            uint8_t l = GET_L(cpu);        // original L
+            uint8_t result = l - 1;        // decrement
+            SET_L(cpu, result);
+
+            cpu->f.zero = (result == 0);
+            cpu->f.subtraction = true;
+            cpu->f.half_carry = ((l & 0x0F) == 0x00); // borrow from bit 4
             break;
+        }
 
         case 0x2E: // LD L,n
             SET_L(cpu, READ_BYTE(cpu, cpu->pc));
@@ -1853,7 +1873,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
         case 0xD9: // RETI
             cpu->pc = READ_WORD(cpu, cpu->sp);
             cpu->sp += 2;
-            cpu->ime_pending = true; // Set the interrupt master enable flag
+            cpu->ime = true; // Set the interrupt master enable flag
             cpu->cycles = 16;
             break;
 
@@ -2153,8 +2173,9 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
 void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
     cpu->cycles = 12;
     uint8_t *reg_ptr = NULL;
+    uint8_t hl_value = 0; // For (HL) operations
     bool left = true;
-    uint8_t is_h = 0; // 1 if h 2 if L 0 if some other register
+    uint8_t is_h = 0; // 1 if h 2 if L 3 if (HL) 0 if some other register
     uint8_t reg = opcode & 0x0F;
     uint8_t instruction = (opcode & 0xF0) >> 4;
     switch (reg) {
@@ -2164,7 +2185,7 @@ void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
         case 0x03: reg_ptr = &cpu->regs.e; break;
         case 0x04: reg_ptr = (uint8_t*)(&cpu->regs.hl)+1; is_h = 1; break; // (H)
         case 0x05: reg_ptr = (uint8_t*)(&cpu->regs.hl); is_h = 2; break; // (L)
-        case 0x06: reg_ptr = &cpu->bus.rom[cpu->regs.hl]; is_h = 3; break; // (HL)
+        case 0x06: hl_value = READ_BYTE(cpu, cpu->regs.hl); reg_ptr = &hl_value; is_h = 3; break; // (HL)
         case 0x07: reg_ptr = &cpu->regs.a; break;
         case 0x08: reg_ptr = &cpu->regs.b; left = false; break; // B
         case 0x09: reg_ptr = &cpu->regs.c; left = false; break; // C
@@ -2172,7 +2193,7 @@ void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
         case 0x0B: reg_ptr = &cpu->regs.e; left = false; break; // E
         case 0x0C: reg_ptr = (uint8_t*)(&cpu->regs.hl)+1; left = false; is_h = 1; break; // H
         case 0x0D: reg_ptr = (uint8_t*)(&cpu->regs.hl); left = false; is_h = 2; break; // L
-        case 0x0E: reg_ptr = &cpu->bus.rom[cpu->regs.hl]; is_h = 3; left = false; break; // (HL)
+        case 0x0E: hl_value = READ_BYTE(cpu, cpu->regs.hl); reg_ptr = &hl_value; is_h = 3; left = false; break; // (HL)
         case 0x0F: reg_ptr = &cpu->regs.a; left = false; break; // RLC A
         default:
             fprintf(stderr, "Unknown CB register: %d\n", reg);
@@ -2447,10 +2468,14 @@ void _exec_cb_inst(struct CPU *cpu, uint8_t opcode) {
             // L was modified, update low byte of hl
             cpu->regs.hl = (cpu->regs.hl & 0xFF00) | (*reg_ptr);
         } else if (is_h == 3) {
+            // (HL) operation - write back to memory for non-BIT instructions
+            if (instruction <= 0x03 || instruction >= 0x08) {
+                WRITE_BYTE(cpu, cpu->regs.hl, hl_value);
+            }
             if (instruction <= 0x07 && instruction >= 0x04) {
-                cpu->cycles = 20;
+                cpu->cycles = 12; // BIT instructions take 12 cycles for (HL)
             } else {
-                cpu->cycles = 16;
+                cpu->cycles = 16; // Other (HL) instructions take 16 cycles
             }
         }
     }

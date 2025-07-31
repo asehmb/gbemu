@@ -1,0 +1,39 @@
+name: SM83 Tests
+
+on:
+  push:
+    branches: [ main, sprite_fix ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  sm83-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential pkg-config libsdl2-dev libcjson-dev
+        
+    - name: Clone SM83 test repository
+      run: |
+        git clone https://github.com/SingleStepTests/sm83.git sm83-tests
+        
+    - name: Build SM83 emulator
+      run: |
+        make clean
+        make sm83
+        
+    - name: Run SM83 v1 tests
+      run: |
+        if [ -d "sm83-tests/v1" ]; then
+          ./tools/run_sm83.sh sm83-tests/v1 ./sm83_tester/gbemu
+        else
+          echo "SM83 v1 test directory not found"
+          exit 1
+        fi
+        
