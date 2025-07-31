@@ -23,8 +23,6 @@ int main(int argc, char *argv[]) {
 
     struct CPU cpu = {0};
     struct MemoryBus bus; // leave bus uninitialized for now
-    bus.rom_size = 0x8000;
-
     cpu_init(&cpu, &bus);
 
     // Load the selected ROM
@@ -224,8 +222,15 @@ int main(int argc, char *argv[]) {
                             fprintf(log_file, "%02X ", cpu.bus.rom[0xFE00 + i]);
                             if ((i + 1) % 4 == 0) fprintf(log_file, "\n");
                         }
+                        fprintf(log_file, "\nSRAM BANK0:\n");
+                        for (int i = 0; i < 0x2000; i++) {
+                            if (i % 16 == 0) {
+                                fprintf(log_file, "\n");
+                            }
+                            fprintf(log_file, "%02X ", cpu.bus.cart_ram[i]);
+                        }
                         
-                        fprintf(log_file, "=== END INSTANTANEOUS VRAM & LCDC DUMP ===\n\n");
+                        fprintf(log_file, "\n=== END INSTANTANEOUS VRAM & LCDC DUMP ===\n\n");
                         fflush(log_file);
                         LOG("VRAM dump completed!\n");
                     }

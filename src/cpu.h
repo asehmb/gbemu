@@ -400,6 +400,7 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 		// rest of the I/O registers/HRAM
 		*(cpu->bus.rom + addr) = value;
 	}
+	// *(cpu->bus.rom + addr) = value; // Write to memory bus
 }
 
 

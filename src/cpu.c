@@ -509,11 +509,16 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
             break;
 
         case 0x2D: // DEC L
-            SET_L(cpu, DEC(GET_L(cpu)));
-            cpu->f.zero = (GET_L(cpu) == 0);
-            cpu->f.half_carry = ((GET_L(cpu) + 1) & 0x0F) == 0x00; // Check half carry
-            cpu->f.subtraction = true; // N flag is set for DEC
+        {
+            uint8_t l = GET_L(cpu);        // original L
+            uint8_t result = l - 1;        // decrement
+            SET_L(cpu, result);
+
+            cpu->f.zero = (result == 0);
+            cpu->f.subtraction = true;
+            cpu->f.half_carry = ((l & 0x0F) == 0x00); // borrow from bit 4
             break;
+        }
 
         case 0x2E: // LD L,n
             SET_L(cpu, READ_BYTE(cpu, cpu->pc));
@@ -1868,7 +1873,7 @@ void exec_inst(struct CPU *cpu, uint8_t opcode) {
         case 0xD9: // RETI
             cpu->pc = READ_WORD(cpu, cpu->sp);
             cpu->sp += 2;
-            cpu->ime_pending = true; // Set the interrupt master enable flag
+            cpu->ime = true; // Set the interrupt master enable flag
             cpu->cycles = 16;
             break;
 

@@ -190,8 +190,6 @@ void render_tile(struct GPU *gpu) {
     if (window_rendered_this_line) {
         gpu->window_line++;
     }
-    
-    
 }
 
 typedef struct {
