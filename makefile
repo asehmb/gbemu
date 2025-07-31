@@ -12,6 +12,9 @@ BUILD_DIR = build
 SRC_FILES = $(wildcard $(SRC_DIR)/*.c)
 OBJ_FILES = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(SRC_FILES))
 
+# SM83-specific object files with ALLOW_ROM_WRITES
+SM83_OBJ_FILES = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%_sm83.o, $(SRC_FILES))
+
 # Target configurations
 # SDL target
 SDL_DIR = sdl
@@ -72,7 +75,7 @@ $(CLI_TARGET): $(OBJ_FILES) $(CLI_MAIN_OBJ)
 	$(CC) $(CLI_CFLAGS) $^ -o $@ $(CLI_LDFLAGS)
 
 # CLI binary (if cli/main.c exists)
-$(SM83_TARGET): $(OBJ_FILES) $(SM83_MAIN_OBJ)
+$(SM83_TARGET): $(SM83_OBJ_FILES) $(SM83_MAIN_OBJ)
 	@mkdir -p $(SM83_DIR)
 	$(CC) $(SM83_CFLAGS) $^ -o $@ $(SM83_LDFLAGS)
 
@@ -81,6 +84,11 @@ $(SM83_TARGET): $(OBJ_FILES) $(SM83_MAIN_OBJ)
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(BUILD_DIR)
 	$(CC) $(BASE_CFLAGS) -c $< -o $@
+
+# Compile SM83-specific src/*.c files with ALLOW_ROM_WRITES
+$(BUILD_DIR)/%_sm83.o: $(SRC_DIR)/%.c
+	@mkdir -p $(BUILD_DIR)
+	$(CC) $(BASE_CFLAGS) -DALLOW_ROM_WRITES -c $< -o $@
 
 # Compile SDL main.c
 $(SDL_MAIN_OBJ): $(SDL_DIR)/main.c

@@ -1,12 +1,11 @@
+
+
+#define ALLOW_ROM_WRITES
 #include "../src/cpu.h"
-#include "../src/graphics.h"
 #include <stdio.h>
 #include <stdbool.h>
-#include "../src/timer.h"
-#include "../src/rom.h"
 #include <stdlib.h>
 #include <string.h>
-#include "../src/input.h"
 #include "cJSON.h"
 
 char *read_file(const char *filename) {
@@ -54,12 +53,28 @@ int main(int argc, char *argv[]) {
     cpu->bootrom_enabled = false;  // unless testing boot ROM
 
     cpu->bus.cart_ram = malloc(0x2000); // Cartridge RAM
+    if (!cpu->bus.cart_ram) {
+        fprintf(stderr, "Failed to allocate cartridge RAM\n");
+        free(json_data);
+        return 1;
+    }
+    memset(cpu->bus.cart_ram, 0, 0x2000);
+    
     cpu->bus.ram_enabled = true;
+    cpu->bus.rom_banking_toggle = true; // Disable ROM banking for testing
+    cpu->bus.rom_banks = malloc(0x4000); // 1 ROM banks of 16KB
+    if (!cpu->bus.rom_banks) {
+        fprintf(stderr, "Failed to allocate ROM banks\n");
+        free(cpu->bus.cart_ram);
+        free(json_data);
+        return 1;
+    }
+    memset(cpu->bus.rom_banks, 0, 0x4000);
 
     cpu->bus.mbc_type = 0; // simplest: no memory bank controller
     cpu->bus.ram_size = 0x2000;
     cpu->bus.current_ram_bank = 0;
-    cpu->bus.current_rom_bank = 1;
+    cpu->bus.current_rom_bank = 1; // Use bank 1 for testing
     cpu->bus.num_rom_banks = 2;
     cJSON *root = cJSON_Parse(json_data);
     if (!root) {
@@ -69,16 +84,39 @@ int main(int argc, char *argv[]) {
 
     int json_size = cJSON_GetArraySize(root); // 1000
     for (int i = 0; i< json_size; i++) {
-        if (i == 0x30){
+        if (i == 120){
             //breakpoint
         }
-        cpu_init(cpu, &bus);               // reset CPU + memory
-        cpu->bootrom_enabled = false;
+        if(i){
+            // Save pointers before reinitializing
+            uint8_t *saved_cart_ram = cpu->bus.cart_ram;
+            uint8_t *saved_rom_banks = cpu->bus.rom_banks;
+            
+            cpu_init(cpu, &bus);               // reset CPU + memory
+            cpu->bootrom_enabled = false;
 
-        // Allocate or clear RAM for this test
-        memset(cpu->bus.rom, 0, 0x10000);
-        memset(cpu->bus.cart_ram, 0, 0x2000);
+            // Restore the allocated memory pointers
+            cpu->bus.cart_ram = saved_cart_ram;
+            cpu->bus.rom_banks = saved_rom_banks;
 
+            // Allocate or clear RAM for this test
+            memset(cpu->bus.rom, 0, 0x10000);
+            if (cpu->bus.cart_ram) {
+                memset(cpu->bus.cart_ram, 0, 0x2000);
+            }
+            if (cpu->bus.rom_banks) {
+                memset(cpu->bus.rom_banks, 0, 0x4000);
+            }
+            
+            // Reset banking settings for each test
+            cpu->bus.ram_enabled = true;
+            cpu->bus.rom_banking_toggle = true; // Disable ROM banking for testing
+            cpu->bus.mbc_type = 0; // No MBC for testing
+            cpu->bus.ram_size = 0x2000;
+            cpu->bus.current_ram_bank = 0;
+            cpu->bus.current_rom_bank = 1; // Use bank 1 for testing
+            cpu->bus.num_rom_banks = 2;
+        }
         cJSON *ind_item = cJSON_GetArrayItem(root, i);
         cJSON *name = cJSON_GetObjectItem(ind_item, "name");
         // initial values
@@ -110,9 +148,11 @@ int main(int argc, char *argv[]) {
         cJSON *final_h = cJSON_GetObjectItem(final, "h");
         cJSON *final_l = cJSON_GetObjectItem(final, "l");
         cJSON *final_ime = cJSON_GetObjectItem(final, "ime");
-        cJSON *final_ram = cJSON_GetObjectItem(final, "ram");
+        if (final_pc->valueint == 0xFF01) {
+            // breakpoint
+        }
 
-        // execute the opcode
+        // setup the cpu
         cpu->pc = init_pc->valueint;
         cpu->sp = init_sp->valueint;
         cpu->regs.a = init_a->valueint;
@@ -126,17 +166,21 @@ int main(int argc, char *argv[]) {
         SET_L(cpu, init_l->valueint);
         cpu->ime = init_ime->valueint;
         cpu->bus.rom[0xFFFF] = init_ie->valueint;
-        cpu->bus.ram_enabled = init_ram->valueint;
 
+        // load initial RAM/ROM values
         for (int j = 0; j < ram_size; j++) {
             cJSON *pair = cJSON_GetArrayItem(init_ram, j);
             int address = cJSON_GetArrayItem(pair, 0)->valueint;
             int value   = cJSON_GetArrayItem(pair, 1)->valueint;
             WRITE_BYTE(cpu, address, value);
         }
+
+        // run opcode
         uint8_t opcode = READ_BYTE(cpu, cpu->pc);
         cpu->pc++; // Increment PC to point to the next instruction
         exec_inst(cpu, opcode);
+
+        // check final state
         cpu->regs.f = PACK_FLAGS(cpu); // Update flags after execution
         int fail = 0;
 
@@ -197,12 +241,18 @@ int main(int argc, char *argv[]) {
         }
         if (fail) {
             fprintf(stderr, "Test failed for %s ", name->valuestring);
-            fprintf(stderr, "at PC=0x%04X\n", cpu->pc - 1);
+            fprintf(stderr, "at PC=0x%04X\n", final_pc->valueint);
         }
     }
+    if (cpu->bus.cart_ram) {
+        free(cpu->bus.cart_ram);
+    }
+    if (cpu->bus.rom_banks) {
+        free(cpu->bus.rom_banks);
+    }
     free(cpu);
-    cJSON_Delete(root);
     free(json_data);
+    cJSON_Delete(root);
     return 0;
 
 }

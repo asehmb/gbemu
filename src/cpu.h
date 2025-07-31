@@ -152,7 +152,11 @@ static inline uint8_t READ_BYTE(struct CPU *cpu, uint16_t addr) {
 		return *(cpu->bootrom + addr);
 	}
 	if (addr == 0xFF00) {
+		#ifdef ALLOW_ROM_WRITES
+		return *(cpu->bus.rom + addr);
+		#else
 		return read_joypad(cpu);
+		#endif
 	}
 	if (cpu->bus.current_rom_bank && addr >= 0x4000 && addr < 0x8000) {
 		if (cpu->bus.mbc_type == 1 && cpu->bus.mbc1_mode) {
@@ -314,7 +318,14 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 				break;
 			}
 			default: /* Other MBCs */
-				// *(cpu->bus.rom + addr) = value; // Writes to ROM are NOT allowed
+			#ifdef ALLOW_ROM_WRITES
+			if (addr < 0x4000) {
+				*(cpu->bus.rom + addr) = value; // Writes to ROM are NOT allowed
+			} else if (addr < 0x8000) {
+				// Allow writes to ROM banks
+				cpu->bus.rom_banks[(cpu->bus.current_rom_bank - 1) * 0x4000 + (addr - 0x4000)] = value;
+			}
+			#endif
 				break;
 		}
 	} else if (addr < 0xA000) {
@@ -376,15 +387,26 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 		*(cpu->bus.rom + addr) = value;
 	} else if (addr == 0xFF0F) { /* Interrupt Flag */
 		*(cpu->bus.rom + addr) = value | 0xE0; /* Only lower 5 bits are used */
+		#ifdef ALLOW_ROM_WRITES
+		*(cpu->bus.rom + addr) = value;
+		#endif
 	} else if (addr == 0xFF50) { /* Bootrom */
 		if (cpu->bootrom_enabled) {
 			printf("Boot ROM disabled by write to 0xFF50 with value 0x%02X\n", value);
 		}
 		cpu->bootrom_enabled = false; /* Any write to 0xFF50 disables the bootrom */
+		*(cpu->bus.rom + addr) = value;
 	} else if (addr == 0xFF04) { /* DIV reset */
 		*(cpu->bus.rom + addr) = 0;
 		cpu->divider_cycles = 0;
+		#ifdef ALLOW_ROM_WRITES
+		*(cpu->bus.rom + addr) = value;
+		#endif
 	} else if (addr == 0xFF42 || addr == 0xFF43) {
+		#ifdef ALLOW_ROM_WRITES
+		*(cpu->bus.rom + addr) = value;
+		return;
+		#endif
 		uint8_t stat_mode = *(cpu->bus.rom + 0xFF41) & 0x03;
 		if (stat_mode == 0x03) {
 			return;
@@ -395,6 +417,10 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 		*(cpu->bus.rom + addr) = value;
 	} else if (addr == 0xFF00) { /* P1 register */
 		/* Update joypad state */
+		#ifdef ALLOW_ROM_WRITES
+		*(cpu->bus.rom + addr) = value;
+		return;
+		#endif
 		*(cpu->bus.rom + addr) = (*(cpu->bus.rom + 0xFF00) & 0xCF) | (value & 0x30);
 	} else {
 		// rest of the I/O registers/HRAM
