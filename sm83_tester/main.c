@@ -51,6 +51,16 @@ int main(int argc, char *argv[]) {
     struct MemoryBus bus; // leave bus uninitialized for now
     cpu_init(cpu, &bus);
 
+    cpu->bootrom_enabled = false;  // unless testing boot ROM
+
+    cpu->bus.cart_ram = malloc(0x2000); // Cartridge RAM
+    cpu->bus.ram_enabled = true;
+
+    cpu->bus.mbc_type = 0; // simplest: no memory bank controller
+    cpu->bus.ram_size = 0x2000;
+    cpu->bus.current_ram_bank = 0;
+    cpu->bus.current_rom_bank = 1;
+    cpu->bus.num_rom_banks = 2;
     cJSON *root = cJSON_Parse(json_data);
     if (!root) {
         printf("Error before: %s\n", cJSON_GetErrorPtr());
@@ -62,6 +72,12 @@ int main(int argc, char *argv[]) {
         if (i == 0x30){
             //breakpoint
         }
+        cpu_init(cpu, &bus);               // reset CPU + memory
+        cpu->bootrom_enabled = false;
+
+        // Allocate or clear RAM for this test
+        memset(cpu->bus.rom, 0, 0x10000);
+        memset(cpu->bus.cart_ram, 0, 0x2000);
 
         cJSON *ind_item = cJSON_GetArrayItem(root, i);
         cJSON *name = cJSON_GetObjectItem(ind_item, "name");
@@ -116,9 +132,9 @@ int main(int argc, char *argv[]) {
             cJSON *pair = cJSON_GetArrayItem(init_ram, j);
             int address = cJSON_GetArrayItem(pair, 0)->valueint;
             int value   = cJSON_GetArrayItem(pair, 1)->valueint;
-            cpu->bus.rom[address] = value;
+            WRITE_BYTE(cpu, address, value);
         }
-        uint8_t opcode = cpu->bus.rom[cpu->pc];
+        uint8_t opcode = READ_BYTE(cpu, cpu->pc);
         cpu->pc++; // Increment PC to point to the next instruction
         exec_inst(cpu, opcode);
         cpu->regs.f = PACK_FLAGS(cpu); // Update flags after execution
