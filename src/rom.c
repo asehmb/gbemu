@@ -105,7 +105,7 @@ int load_rom(struct CPU *cpu, const char *filename) {
         return -1;
     }
     if (fread(cpu->bus.rom_banks, 1, (num_banks - 1) * 0x4000, file) != (num_banks - 1) * 0x4000) {
-        fprintf(stderr, "Failed to read ROM BANKS data\n");
+        LOG(stderr, "Failed to read ROM BANKS data\n");
         free(cpu->bus.rom_banks);
         fclose(file);
         return -1;
@@ -144,7 +144,7 @@ int load_rom(struct CPU *cpu, const char *filename) {
     if (cart_ram_size > 0) {
         cpu->bus.cart_ram = malloc(cart_ram_size);
         if (!cpu->bus.cart_ram) {
-            fprintf(stderr, "Failed to allocate cartridge RAM\n");
+            LOG(stderr, "Failed to allocate cartridge RAM\n");
             // handle error or exit
         }
     }
@@ -156,7 +156,7 @@ int load_rom(struct CPU *cpu, const char *filename) {
 int load_bootrom(struct CPU *cpu, const char *filename) {
     FILE *file = fopen(filename, "rb");
     if (!file) {
-        perror("Failed to open bootrom file");
+        LOG("Failed to open bootrom file");
         return -1;
     }
 
@@ -165,7 +165,7 @@ int load_bootrom(struct CPU *cpu, const char *filename) {
     fclose(file);
 
     if (read != 256) {
-        fprintf(stderr, "Boot ROM size incorrect (read %zu bytes, expected 256)\n", read);
+        LOG(stderr, "Boot ROM size incorrect (read %zu bytes, expected 256)\n", read);
         return -1;
     }
 

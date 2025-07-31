@@ -39,99 +39,17 @@ void render_scanline(struct GPU *gpu, int line) {
 }
 
 /*
-    LCDC (0xFF40) - LCD Control Register
-    Bit 7 - LCD Display Enable (0=Off, 1=On)
-    Bit 6 - Window Tile Map Display Select (0=9800-9BFF, 1=9C00-9FFF)
-    Bit 5 - Window Display Enable (0=Off, 1=On)
-    Bit 4 - BG & Window Tile Data Select (0=8800-97FF, 1=8000-8FFF)
-    Bit 3 - BG Tile Map Display Select (0=9800-9BFF, 1=9C00-9FFF)
-    Bit 2 - OBJ (Sprite) Size (0=8x8, 1=8x16)
-    Bit 1 - OBJ (Sprite) Display Enable (0=Off, 1=On)
-    Bit 0 - BG Display (for CGB see below) (0=Off, 1=On)
+ * LCDC (0xFF40) - LCD Control Register
+ * Bit 7 - LCD Display Enable (0=Off, 1=On)
+ * Bit 6 - Window Tile Map Display Select (0=9800-9BFF, 1=9C00-9FFF)
+ * Bit 5 - Window Display Enable (0=Off, 1=On)
+ * Bit 4 - BG & Window Tile Data Select (0=8800-97FF, 1=8000-8FFF)
+ * Bit 3 - BG Tile Map Display Select (0=9800-9BFF, 1=9C00-9FFF)
+ * Bit 2 - OBJ (Sprite) Size (0=8x8, 1=8x16)
+ * Bit 1 - OBJ (Sprite) Display Enable (0=Off, 1=On)
+ * Bit 0 - BG Display (for CGB see below) (0=Off, 1=On)
  */
 void render_tile(struct GPU *gpu) {
-    /*
-    // verbose setup for debugging
-    uint8_t lcdc = LCDC(gpu);
-    const uint8_t ly = LY(gpu);
-    uint16_t tile_data_addr;
-    uint16_t tile_pattern_table = 0;
-    bool using_window = false;
-    bool unsig = true;
-
-    uint8_t scx = SCX(gpu);
-    uint8_t scy = SCY(gpu);
-    uint8_t wx = WX(gpu);
-    uint8_t wy = WY(gpu);
-
-    // Window enabled and within window Y range?
-    if ((lcdc & 0x20) && (ly >= wy)) {
-        using_window = true;
-        wx -= 7;  // Only adjust WX when actually using window
-    }
-
-    // Tile pattern table selection
-    if (lcdc & 0x10) {
-        tile_pattern_table = 0x8000;  // Unsigned tile numbers
-    } else {
-        tile_pattern_table = 0x8800;  // Signed tile numbers
-        unsig = false;
-    }
-
-    // Tile map selection
-    if (!using_window) {
-        tile_data_addr = (lcdc & 0x08) ? 0x9C00 : 0x9800;
-    } else {
-        tile_data_addr = (lcdc & 0x40) ? 0x9C00 : 0x9800;
-    }
-
-    uint8_t y_pos = using_window ? (ly - wy) : (scy + ly);
-    uint16_t tile_row = (y_pos / 8) * 32;  // 32 tiles per row
-
-    for (size_t pixel = 0; pixel < 160; pixel++) {
-        uint8_t x_pos = pixel + scx;
-        
-        if (using_window && pixel >= wx) {
-            x_pos = pixel - wx;
-        }
-
-        uint16_t tile_col = x_pos / 8;
-        int16_t tile_num;
-        
-        // Read tile number from tile map
-        uint16_t tile_map_addr = tile_data_addr + tile_row + tile_col;
-        if (unsig) {
-            tile_num = (uint8_t)read_vram(gpu, tile_map_addr);
-        } else {
-            tile_num = (int8_t)read_vram(gpu, tile_map_addr);
-        }
-
-        // Calculate tile pattern address
-        uint16_t tile_location;
-        if (unsig) {
-            tile_location = tile_pattern_table + (tile_num * 16);
-        } else {
-            tile_location = tile_pattern_table + ((tile_num + 128) * 16);
-        }
-
-        // Get tile line data (2 bytes per line)
-        uint8_t line = (y_pos % 8) * 2;
-        uint8_t data1 = read_vram(gpu, tile_location + line);
-        uint8_t data2 = read_vram(gpu, tile_location + line + 1);
-
-        // Extract color bits
-        uint8_t bit_index = 7 - (x_pos % 8);
-        uint8_t color_index = ((data2 >> bit_index) & 1) << 1 |
-                            ((data1 >> bit_index) & 1);
-        
-        // Map to BGP palette
-        uint8_t mapped_color = (BGP(gpu) >> (color_index * 2)) & 0x03;
-
-        // Store in framebuffer (unchanged)
-        gpu->framebuffer[ly * SCREEN_WIDTH + pixel] = mapped_color;
-    }
-    */
-
     uint8_t lcdc = LCDC(gpu);
     const uint8_t ly = LY(gpu);
     uint16_t tile_data;

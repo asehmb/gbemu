@@ -1,8 +1,11 @@
 # Compiler and flags
 CC = clang
 # Use -g -O0 for debugging, -O2 for release builds
-# BASE_CFLAGS = -O2 -march=native -flto -DNDEBUG -Wall -pthread -I$(SRC_DIR)
-BASE_CFLAGS = -g -O0 -march=native -Wall -pthread -I$(SRC_DIR)
+BASE_CFLAGS = -O2 -march=native -flto -DNDEBUG -Wall -pthread -I$(SRC_DIR)
+# BASE_CFLAGS = -g -O0 -march=native -Wall -pthread -I$(SRC_DIR)
+
+# Debug flags for debug and testing targets
+DEBUG_CFLAGS_BASE = -g -O0 -march=native -Wall -pthread -I$(SRC_DIR)
 
 # Platform detection
 UNAME_S := $(shell uname -s)
@@ -60,6 +63,9 @@ OBJ_FILES = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(SRC_FILES))
 # SM83-specific object files with ALLOW_ROM_WRITES
 SM83_OBJ_FILES = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%_sm83.o, $(SRC_FILES))
 
+# Debug-specific object files with debug flags
+DEBUG_OBJ_FILES = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%_debug.o, $(SRC_FILES))
+
 # Target configurations
 # SDL target
 SDL_DIR = sdl
@@ -77,14 +83,21 @@ CLI_MAIN_OBJ = $(BUILD_DIR)/cli_main.o
 
 SM83_DIR = sm83_tester
 SM83_TARGET = $(SM83_DIR)/gbemu
-SM83_CFLAGS = $(BASE_CFLAGS) $(CJSON_CFLAGS)
+SM83_CFLAGS = $(DEBUG_CFLAGS_BASE) $(CJSON_CFLAGS)
 SM83_LDFLAGS = $(PROFILER_LDFLAGS) $(CJSON_LDFLAGS)
 SM83_MAIN_OBJ = $(BUILD_DIR)/sm83_tester.o
 
-.PHONY: all clean sdl cli sm83 available-targets help
+# Debug target (same as SDL but with debug main.c)
+DEBUG_DIR = debug
+DEBUG_TARGET = $(DEBUG_DIR)/gbemu
+DEBUG_CFLAGS = $(DEBUG_CFLAGS_BASE) $(SDL2_CFLAGS)
+DEBUG_LDFLAGS = $(SDL2_LDFLAGS) $(PROFILER_LDFLAGS)
+DEBUG_MAIN_OBJ = $(BUILD_DIR)/debug_main.o
+
+.PHONY: all clean sdl cli sm83 debug available-targets help
 
 # Check what targets are available
-AVAILABLE_TARGETS = sdl sm83
+AVAILABLE_TARGETS = sdl sm83 debug
 ifneq ($(wildcard $(CLI_DIR)/main.c),)
 AVAILABLE_TARGETS += cli
 endif
@@ -98,6 +111,7 @@ help:
 	@echo "  sdl     - Build SDL version"
 	@echo "  cli     - Build CLI version (if cli/main.c exists)"
 	@echo "  sm83    - Build SM83 Tester"
+	@echo "  debug   - Build Debug version (with extra debugging features)"
 	@echo "  clean   - Clean build artifacts"
 	@echo "  help    - Show this help message"
 
@@ -109,6 +123,8 @@ cli: $(CLI_TARGET)
 
 sm83: $(SM83_TARGET)
 
+debug: $(DEBUG_TARGET)
+
 # SDL binary
 $(SDL_TARGET): $(OBJ_FILES) $(SDL_MAIN_OBJ)
 	@mkdir -p $(SDL_DIR)
@@ -119,10 +135,15 @@ $(CLI_TARGET): $(OBJ_FILES) $(CLI_MAIN_OBJ)
 	@mkdir -p $(CLI_DIR)
 	$(CC) $(CLI_CFLAGS) $^ -o $@ $(CLI_LDFLAGS)
 
-# CLI binary (if cli/main.c exists)
+# SM83 binary
 $(SM83_TARGET): $(SM83_OBJ_FILES) $(SM83_MAIN_OBJ)
 	@mkdir -p $(SM83_DIR)
 	$(CC) $(SM83_CFLAGS) $^ -o $@ $(SM83_LDFLAGS)
+
+# Debug binary
+$(DEBUG_TARGET): $(DEBUG_OBJ_FILES) $(DEBUG_MAIN_OBJ)
+	@mkdir -p $(DEBUG_DIR)
+	$(CC) $(DEBUG_CFLAGS) $^ -o $@ $(DEBUG_LDFLAGS)
 
 
 # Compile shared src/*.c files
@@ -133,7 +154,12 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 # Compile SM83-specific src/*.c files with ALLOW_ROM_WRITES
 $(BUILD_DIR)/%_sm83.o: $(SRC_DIR)/%.c
 	@mkdir -p $(BUILD_DIR)
-	$(CC) $(BASE_CFLAGS) -DALLOW_ROM_WRITES -c $< -o $@
+	$(CC) $(DEBUG_CFLAGS_BASE) -DALLOW_ROM_WRITES -c $< -o $@
+
+# Compile Debug-specific src/*.c files with debug flags
+$(BUILD_DIR)/%_debug.o: $(SRC_DIR)/%.c
+	@mkdir -p $(BUILD_DIR)
+	$(CC) $(DEBUG_CFLAGS_BASE) -c $< -o $@
 
 # Compile SDL main.c
 $(SDL_MAIN_OBJ): $(SDL_DIR)/main.c
@@ -145,13 +171,18 @@ $(CLI_MAIN_OBJ): $(CLI_DIR)/main.c
 	@mkdir -p $(BUILD_DIR)
 	$(CC) $(CLI_CFLAGS) -c $< -o $@
 
-# Compile CLI main.c (if it exists)
+# Compile SM83 main.c
 $(SM83_MAIN_OBJ): $(SM83_DIR)/main.c
 	@mkdir -p $(BUILD_DIR)
 	$(CC) $(SM83_CFLAGS) -c $< -o $@
+
+# Compile Debug main.c
+$(DEBUG_MAIN_OBJ): $(DEBUG_DIR)/main.c
+	@mkdir -p $(BUILD_DIR)
+	$(CC) $(DEBUG_CFLAGS) -c $< -o $@
 
 
 # Clean build artifacts
 clean:
 	rm -rf $(BUILD_DIR)
-	rm -f $(SDL_TARGET) $(CLI_TARGET) $(SM83_TARGET)
+	rm -f $(SDL_TARGET) $(CLI_TARGET) $(SM83_TARGET) $(DEBUG_TARGET)

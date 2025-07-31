@@ -1,7 +1,6 @@
 #ifndef _CPU_H
 #define _CPU_H
 
-#define LOGGING
 
 #ifdef LOGGING
 #define LOG(fmt, ...) fprintf(stdout, fmt, ##__VA_ARGS__)
@@ -211,9 +210,9 @@ static inline uint8_t READ_BYTE(struct CPU *cpu, uint16_t addr) {
 		return *(cpu->bus.rom + addr); // Read from VRAM
 	}
 	if (0xFE00 <= addr && addr < 0xFEA0) { // OAM
-		// if (cpu->dma_transfer == true) {
-		// 	return cpu->bus.rom[addr];
-		// }
+		if (cpu->dma_transfer == true) {
+			return cpu->bus.rom[addr];
+		}
 		uint8_t stat_mode = *(cpu->bus.rom + 0xFF41) & 0x03;
 		if (stat_mode == 0x02 || stat_mode == 0x03) {
 			return 0xFF; // Block reads in mode 2 and 3
@@ -436,9 +435,10 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 	// *(cpu->bus.rom + addr) = value; // Write to memory bus
 }
 
-
+// Read 16-bit values
 #define READ_WORD(cpu, addr) \
 	((READ_BYTE(cpu, (addr)) | (READ_BYTE(cpu, (addr) + 1) << 8)))
+// Write 16-bit values
 #define WRITE_WORD(cpu, addr, value) \
 	do { \
 		WRITE_BYTE(cpu, (addr), (value) & 0xFF); \
@@ -467,15 +467,35 @@ void exec_inst(struct CPU *cpu, uint8_t opcode);
 */
 static inline void cpu_interrupt_jump(struct CPU *cpu, uint16_t vector);
 
+/* Execute a CPU CB instruction
+   This function decodes and executes a CPU instruction.
+   @param cpu Pointer to the CPU structure.
+   @return void
+*/
 static inline void _exec_cb_inst(struct CPU *cpu, uint8_t opcode);
 
+/* Initialize the CPU
+   @param cpu Pointer to the CPU structure.
+   @param bus Pointer to the MemoryBus structure.
+   @return void
+*/
 void cpu_init(struct CPU *cpu, struct MemoryBus *bus);
 
+/*
+   Handle CPU interrupts.
+   @param cpu Pointer to the CPU structure.
+   @return int 1 if an interrupt was handled, 0 otherwise.
+*/
 int cpu_handle_interrupts(struct CPU *cpu);
 
+/**
+ * Step the CPU for one instruction cycle.
+ * This function handles the execution of a single CPU instruction,
+ * including checking for interrupts and handling the halt state.
+ * @param cpu Pointer to the CPU structure.
+ * @return void
+ */
 static inline void step_cpu(struct CPU *cpu) {
-
-
     cpu->cycles = 4;
     if (cpu->halted) {
         uint8_t if_reg = cpu->bus.rom[0xFF0F];
@@ -491,7 +511,6 @@ static inline void step_cpu(struct CPU *cpu) {
             return;
     }
     }
-
     if (cpu->ime) {
         if (!cpu_handle_interrupts(cpu)){
             return;
@@ -505,7 +524,6 @@ static inline void step_cpu(struct CPU *cpu) {
     uint8_t opcode = READ_BYTE(cpu, cpu->pc);
     cpu->pc++; // Increment PC to point to the next instruction
     exec_inst(cpu, opcode);
-
 }
 
 

@@ -81,15 +81,16 @@ struct GPU {
 
     bool should_render; // Flag to indicate if rendering should occur
     uint8_t window_line;
-    uint32_t off_count;
+    uint32_t off_count; // Count of cycles when LCD is off
     int16_t delay_cycles; // Delay cycles for rendering
     bool stopped; // Flag to indicate if GPU is stopped
 
 };
 
-// Function declarations
+/* Render a scanline */
 void render_scanline(struct GPU *gpu, int line);
 
+/* Step the GPU for a number of cycles */
 static inline void step_gpu(struct GPU *gpu, int cycles) {
     if (!(LCDC(gpu) & 0x80)) {
         gpu->off_count += cycles;
@@ -206,16 +207,17 @@ static inline void step_gpu(struct GPU *gpu, int cycles) {
             break;
     }
 }
-
+/* helper to read from VRAM */
 uint8_t read_vram(struct GPU *gpu, uint16_t addr);
+/* helper to write to VRAM */
 void write_vram(struct GPU *gpu, uint16_t addr, uint8_t value);
 
+/* Render A background/window line */
 void render_tile(struct GPU *gpu);
-void render_window(struct GPU *gpu);
+
+/* Render Sprites on a scanline */
 void render_sprites(struct GPU *gpu);
 
-
-void maybe_trigger_stat_interrupt(struct GPU *gpu, int mode);
 
 
 #endif // GRAPHICS_H
