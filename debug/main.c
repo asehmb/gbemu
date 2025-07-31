@@ -38,9 +38,8 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    if (load_bootrom(&cpu, "testing/dmg_boot.bin") != 0) {
+    if (load_bootrom(&cpu, bootrom_path) != 0) {
         fprintf(stderr, "Failed to load boot ROM\n");
-        return -1;
     }
     
     // Debug bootrom status
