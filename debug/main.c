@@ -315,7 +315,6 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        int frame_cycles = 0;
         
         while (!gpu.should_render) {
             if (debug_cpu_logging) {
@@ -335,7 +334,6 @@ int main(int argc, char *argv[]) {
                 fflush(log_file);
             }
             
-            uint32_t prev_cycles = cpu.cycles;
 
             step_cpu(&cpu); // Step the CPU
             
@@ -373,7 +371,6 @@ int main(int argc, char *argv[]) {
                 step_gpu(&gpu, cpu.cycles); // Step the GPU
             } while (cpu.halted && ((cpu.bus.rom[0xFF0F] & cpu.bus.rom[0xFFFF]) == 0)); // Handle interrupts if CPU is halted
 
-            frame_cycles += (cpu.cycles - prev_cycles);
         }
 
         if (prev_joypad != cpu.bus.rom[INPUT_JOYPAD]) {

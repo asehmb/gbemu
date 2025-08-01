@@ -183,59 +183,48 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // Run emulation for one frame (approximately 70224 cycles for Game Boy)
-        int frame_cycles = 0;
+
         
         while (!gpu.should_render) {
         
-            
-            uint32_t prev_cycles = cpu.cycles;
-
             step_cpu(&cpu); // Step the CPU
             do {
                 step_timer(&cpu);  // Step the timer
                 step_gpu(&gpu, cpu.cycles); // Step the GPU
             } while (cpu.halted && ((cpu.bus.rom[0xFF0F] & cpu.bus.rom[0xFFFF]) == 0)); // Handle interrupts if CPU is halted
 
-            frame_cycles += (cpu.cycles - prev_cycles);
         }
 
-        // Only limit frame rate when we actually render a frame
-        if (gpu.should_render) {
-            // Frame timing
-            uint32_t frame_time = SDL_GetTicks() - frame_start;
-            if (frame_time < FRAME_TIME) {
-                SDL_Delay(FRAME_TIME - frame_time);
+        uint32_t frame_time = SDL_GetTicks() - frame_start;
+        if (frame_time < FRAME_TIME) {
+            SDL_Delay(FRAME_TIME - frame_time);
+        }
+    
+        frame_count++;
+
+        // Convert framebuffer to SDL pixel format
+        for (int y = 0; y < 144; y++) {
+            for (int x = 0; x < 160; x++) {
+                sdl_pixels[y * 160 + x] = pallete[gpu.framebuffer[y * 160 + x]];
             }
         }
-        
-        if (gpu.should_render) {
-            frame_count++;
+        SDL_UpdateTexture(texture, NULL, sdl_pixels, 160 * sizeof(uint32_t));
+        SDL_RenderClear(renderer);
+        SDL_RenderCopy(renderer, texture, NULL, NULL);
+                    
+        SDL_RenderPresent(renderer);
+        gpu.should_render = false; // Reset render flag
 
-            // Convert framebuffer to SDL pixel format
-            for (int y = 0; y < 144; y++) {
-                for (int x = 0; x < 160; x++) {
-                    sdl_pixels[y * 160 + x] = pallete[gpu.framebuffer[y * 160 + x]];
-                }
-            }
-            SDL_UpdateTexture(texture, NULL, sdl_pixels, 160 * sizeof(uint32_t));
-            SDL_RenderClear(renderer);
-            SDL_RenderCopy(renderer, texture, NULL, NULL);
-                        
-            SDL_RenderPresent(renderer);
-            gpu.should_render = false; // Reset render flag
-
-            // Update FPS counter every second
-            uint32_t current_time = SDL_GetTicks();
-            if (current_time - fps_timer >= 1000) {
-                fps = frame_count;
-                frame_count = 0;
-                fps_timer = current_time;
-                
-                // Update window title with FPS
-                snprintf(window_title, sizeof(window_title), "Game Boy Emulator - FPS: %u", fps);
-                SDL_SetWindowTitle(window, window_title);
-            }
+        // Update FPS counter every second
+        uint32_t current_time = SDL_GetTicks();
+        if (current_time - fps_timer >= 1000) {
+            fps = frame_count;
+            frame_count = 0;
+            fps_timer = current_time;
+            
+            // Update window title with FPS
+            snprintf(window_title, sizeof(window_title), "Game Boy Emulator - FPS: %u", fps);
+            SDL_SetWindowTitle(window, window_title);
         }
 
 
