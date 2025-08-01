@@ -2,6 +2,7 @@
 #define LOGGING
 #include "../src/cpu.h"
 #include "../src/graphics.h"
+#include "../src/rom.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -36,6 +37,14 @@ int main(int argc, char *argv[]) {
     LOG("Loading ROM: %s\n", rom_path);
     if (load_rom(&cpu, rom_path) != 0) {
         return -1;
+    }
+
+    // Set up save file path
+    cpu.save_file_path = save_file_name(&cpu, rom_path);
+    if (cpu.save_file_path) {
+        LOG("Save file will be: %s\n", cpu.save_file_path);
+    } else {
+        LOG("No save file support for this cartridge type\n");
     }
 
     if (load_bootrom(&cpu, bootrom_path) != 0) {
@@ -148,7 +157,18 @@ int main(int argc, char *argv[]) {
     // Track button states
     static uint8_t button_directions = 0x0F;  // All direction buttons released (1=released, 0=pressed)
     static uint8_t button_actions = 0x0F;     // All action buttons released (1=released, 0=pressed)
-    
+    LOG("Save loaded: %s\n", cpu.save_loaded ? "YES" : "NO");
+    LOG("CPU save file path: %s\n", cpu.save_file_path ? cpu.save_file_path : "NULL");
+    // force load save file on first run
+    if (!cpu.save_loaded && cpu.save_file_path) {
+        LOG("Loading save file: %s\n", cpu.save_file_path);
+        if (load_save_file(&cpu, cpu.save_file_path) != 0) {
+            LOG("Failed to load save file: %s\n", cpu.save_file_path);
+        } else {
+            cpu.save_loaded = true; // Mark save as loaded
+            LOG("Save file loaded successfully.\n");
+        }
+    }
     while (running) {
         uint32_t frame_start = SDL_GetTicks();
         
@@ -503,6 +523,17 @@ int main(int argc, char *argv[]) {
 
     }
 
+    // Cleanup
+    if (cpu.save_file_path) {
+        // Save the state if a save file path is provided
+        if (write_save_file(&cpu, cpu.save_file_path) != 0) {
+            LOG("Failed to save CPU state to %s\n", cpu.save_file_path);
+        }
+        free(cpu.save_file_path);
+    }
+    fclose(log_file);
+    fclose(memory_dump);
+    
     free(sdl_pixels);
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);

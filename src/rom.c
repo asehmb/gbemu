@@ -1,7 +1,57 @@
 
 #include "rom.h"
 #include <stdio.h>
+#include <string.h>
 
+/* Generate a save file name based on the ROM filename 
+ * Must be freed by the caller
+ * Returns NULL if no save file is needed (e.g., no battery-backed RAM)
+ */
+char *save_file_name(struct CPU *cpu, const char *filename) {
+    // Cartridge type is at 0x147 in the ROM header
+    uint8_t cart_type = cpu->bus.rom[0x147];
+
+    // Cartridge types that support save (SRAM or battery-backed RAM)
+    // This list includes common battery-backed cartridges:
+    // See https://gbdev.io/pandocs/#0147---cartridge-type
+    switch(cart_type) {
+        case 0x03: // MBC1 + RAM + BATTERY
+        case 0x06: // MBC2 + BATTERY
+        case 0x09: // RAM + BATTERY
+        case 0x0D: // MBC3 + RAM + BATTERY
+        case 0x0F: // MBC3 + TIMER + BATTERY
+        case 0x10: // MBC3 + TIMER + RAM + BATTERY
+        case 0x13: // MBC3 + RAM + BATTERY
+        case 0x1B: // MBC5 + RAM + BATTERY
+        case 0x1E: // MBC5 + RAM + BATTERY
+        case 0xFF: // Special cases, maybe no battery but treat as save (optional)
+            break;
+        default:
+            cpu->save_loaded = true; // No save support
+            // No save support
+            return NULL;
+    }
+
+    // Allocate buffer for filename + ".sav" extension (max 256 bytes for safety)
+    char *save_filename = malloc(256);
+    if (!save_filename) return NULL;
+
+    // Copy original filename
+    strncpy(save_filename, filename, 255);
+    save_filename[255] = '\0';
+
+    // Find ".gb" or ".GB" extension and replace it with ".sav"
+    char *ext = strrchr(save_filename, '.');
+    if (ext && (strcasecmp(ext, ".gb") == 0)) {
+        strcpy(ext, ".sav");
+    } else {
+        // No .gb extension found, just append .sav
+        strncat(save_filename, ".sav", 255 - strlen(save_filename));
+    }
+    cpu->save_loaded = false;
+
+    return save_filename;
+}
 uint8_t rom_init(struct MemoryBus *bus) {
 
     uint8_t type = bus->rom[0x147];
@@ -146,6 +196,10 @@ int load_rom(struct CPU *cpu, const char *filename) {
         if (!cpu->bus.cart_ram) {
             LOG(stderr, "Failed to allocate cartridge RAM\n");
             // handle error or exit
+        } else {
+            // Initialize cartridge RAM to zero
+            memset(cpu->bus.cart_ram, 0, cart_ram_size);
+            LOG("Cartridge RAM allocated and initialized: %zu bytes\n", cart_ram_size);
         }
     }
 
@@ -182,4 +236,79 @@ void patch_checksum(uint8_t *rom) {
         checksum = checksum - rom[addr] - 1;
     }
     rom[0x014D] = checksum; // Overwrite the checksum byte
+}
+
+/* Load save file data into cartridge RAM
+ * Returns 0 on success, -1 on failure (file not found is not considered failure)
+ */
+int load_save_file(struct CPU *cpu, const char *save_path) {
+    LOG("load_save_file called with path: %s\n", save_path ? save_path : "NULL");
+    LOG("  cart_ram: %p, ram_size: %zu\n", cpu->bus.cart_ram, cpu->bus.ram_size);
+    
+    if (!save_path || !cpu->bus.cart_ram || cpu->bus.ram_size == 0) {
+        LOG("  Skipping load: save_path=%p, cart_ram=%p, ram_size=%zu\n", 
+            save_path, cpu->bus.cart_ram, cpu->bus.ram_size);
+        return 0; // No save path or no RAM to load into
+    }
+
+    FILE *file = fopen(save_path, "rb");
+    if (!file) {
+        LOG("Save file not found: %s (this is normal for new games)\n", save_path);
+        return 0; // File not found is normal, not an error
+    }
+
+    // Get file size
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    // Verify file size matches expected RAM size
+    if (file_size != (long)cpu->bus.ram_size) {
+        LOG("Warning: Save file size (%ld) doesn't match expected RAM size (%zu)\n", 
+            file_size, cpu->bus.ram_size);
+        fclose(file);
+        return -1;
+    }
+
+    // Load save data into cart RAM
+    size_t bytes_read = fread(cpu->bus.cart_ram, 1, cpu->bus.ram_size, file);
+    fclose(file);
+
+    if (bytes_read != cpu->bus.ram_size) {
+        LOG("Error: Failed to read complete save file (read %zu of %zu bytes)\n", 
+            bytes_read, cpu->bus.ram_size);
+        return -1;
+    }
+
+    LOG("Save file loaded successfully: %s (%zu bytes)\n", save_path, bytes_read);
+    cpu->save_loaded = true;
+    return 0;
+}
+
+/* Write save file data from cartridge RAM
+ * Returns 0 on success, -1 on failure
+ */
+int write_save_file(struct CPU *cpu, const char *save_path) {
+    if (!save_path || !cpu->bus.cart_ram || cpu->bus.ram_size == 0) {
+        return 0; // No save path or no RAM to save
+    }
+
+    FILE *file = fopen(save_path, "wb");
+    if (!file) {
+        LOG("Error: Failed to open save file for writing: %s\n", save_path);
+        return -1;
+    }
+
+    // Write all cartridge RAM to file
+    size_t bytes_written = fwrite(cpu->bus.cart_ram, 1, cpu->bus.ram_size, file);
+    fclose(file);
+
+    if (bytes_written != cpu->bus.ram_size) {
+        LOG("Error: Failed to write complete save file (wrote %zu of %zu bytes)\n", 
+            bytes_written, cpu->bus.ram_size);
+        return -1;
+    }
+
+    LOG("Save file written successfully: %s (%zu bytes)\n", save_path, bytes_written);
+    return 0;
 }

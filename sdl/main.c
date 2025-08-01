@@ -7,11 +7,13 @@
 #include "../src/rom.h"
 #include <stdlib.h>
 #include <string.h>
+#include <wchar.h>
 
 
 int main(int argc, char *argv[]) {
     const char *rom_path; // Default ROM
     const char *bootrom_path; // Default boot ROM
+    const char *save_file= NULL;
 
     // Check if a ROM file was specified on the command line
     if (argc == 2) {
@@ -19,6 +21,10 @@ int main(int argc, char *argv[]) {
     } else if (argc == 3) {
         rom_path = argv[1];
         bootrom_path = argv[2];
+    } else if (argc == 4) {
+        rom_path = argv[1];
+        bootrom_path = argv[2];
+        save_file = argv[3];
     } else {
         fprintf(stderr, "No ROM file specified.\n");
         return 1;
@@ -35,15 +41,18 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
+    // Set up save file path
+    if (save_file) {
+        cpu.save_file_path = strdup(save_file);
+        cpu.save_loaded = false;
+    } else {
+        cpu.save_file_path = save_file_name(&cpu, rom_path);
+    }
+    
+
     if (load_bootrom(&cpu, bootrom_path) != 0) {
         fprintf(stderr, "Failed to load boot ROM\n");
     }
-    
-    LOG("Boot ROM status: %s\n", cpu.bootrom_enabled ? "ENABLED" : "DISABLED");
-    
-    LOG("ROM type: 0x%02X\n", cpu.bus.rom[0x0147]);
-
-    LOG("CPU and Memory Bus initialized.\n");
 
     patch_checksum(cpu.bus.rom); // Patch the checksum after loading the ROM
 
@@ -111,6 +120,12 @@ int main(int argc, char *argv[]) {
     static uint8_t button_directions = 0x0F;  // All direction buttons released (1=released, 0=pressed)
     static uint8_t button_actions = 0x0F;     // All action buttons released (1=released, 0=pressed)
     
+    if (!cpu.save_loaded && cpu.save_file_path) {
+        if (load_save_file(&cpu, cpu.save_file_path) != 0) {
+        } else {
+            cpu.save_loaded = true; // Mark save as loaded
+        }
+    }
     while (running) {
         uint32_t frame_start = SDL_GetTicks();
         
@@ -224,6 +239,14 @@ int main(int argc, char *argv[]) {
         }
 
 
+    }
+
+    if (cpu.save_file_path) {
+        // Save the state if a save file path is provided
+        if (write_save_file(&cpu, cpu.save_file_path) != 0) {
+            LOG("Failed to save CPU state to %s\n", cpu.save_file_path);
+        }
+        free(cpu.save_file_path); // was dynamically allocated
     }
 
     free(sdl_pixels);

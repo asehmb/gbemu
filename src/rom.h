@@ -57,6 +57,9 @@ int ram_size(struct MemoryBus *bus);
 int load_rom(struct CPU *cpu, const char *filename);
 int load_bootrom(struct CPU *cpu, const char *filename);
 void patch_checksum(uint8_t *rom);
+char *save_file_name(struct CPU *cpu, const char *filename);
+int load_save_file(struct CPU *cpu, const char *save_path);
+int write_save_file(struct CPU *cpu, const char *save_path);
 
 
 #endif // _ROM_H

@@ -13,6 +13,10 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+// Forward declaration to avoid circular include
+struct CPU;
+int load_save_file(struct CPU *cpu, const char *save_path);
+
 
 #define FLAG_ZERO      0x80 // 1000 0000
 #define FLAG_SUBTRACTION 0x40 // 0100 0000
@@ -88,6 +92,8 @@ struct CPU {
 	uint8_t p1_directions; // joypad directions (up, down, left, right)
 	bool dma_transfer; // DMA transfer flag
 	uint8_t selected_rtc_register; // Currently selected RTC register (0x08-0x0C for MBC3)
+	char *save_file_path; // Path to save file
+	bool save_loaded; // Flag to indicate if save file was loaded
 };
 
 /* MACROS FOR QUICK ACCESS */
@@ -308,7 +314,6 @@ static inline void WRITE_BYTE(struct CPU *cpu, uint16_t addr, uint8_t value) {
 			{
 				if (addr < 0x2000) { /* RAM enable */
 					cpu->bus.ram_enabled = ((value & 0x0F) == 0x0A);
-					printf("RAM banking %s\n", cpu->bus.ram_enabled ? "enabled" : "disabled");
 				} else if (addr < 0x3000) { /* ROM bank lower 8 bits */
 					cpu->bus.current_rom_bank = (cpu->bus.current_rom_bank & 0x100) | (value & 0xFF);
 				} else if (addr < 0x4000) { /* ROM bank bit 8 */
