@@ -7,6 +7,8 @@ Tested Roms: pokemon blue, Dr.Mario, Tetris Zelda: Link's awakening
 To compile:
 
 run make in the terminal
+
+to play:
 ./sdl/gbemu <name_of_rom>
 
 Currently tested on MacOS. Targets exist for Linux and Windows but are untested
